@@ -11,7 +11,7 @@
   "dependencies": {
     "@upstash/redis": "^1.35.7",
     "dom-to-image-more": "^3.7.2",
-    "next": "16.0.3",
+    "next": "^16.0.7",
     "proxy-agent": "^6.5.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
