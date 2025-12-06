@@ -20,8 +20,52 @@ import {
   getWalletHistory,
 } from "./utils/redis";
 
+import { Redis } from "@upstash/redis";
+
 // 当前报告版本
 const REPORT_VERSION = "1.0";
+
+// ===== 使用统计（web + bot 统一） =====
+
+// 复用现有 Upstash Redis 环境变量
+const statsRedis = Redis.fromEnv();
+
+/**
+ * 记录一次使用数据（只统计线上 Vercel 环境）
+ * - stats:requests:total               总请求数
+ * - stats:requests:day:YYYY-MM-DD      每日请求数
+ * - stats:users:addresses              去重地址（全局）
+ * - stats:users:addresses:YYYY-MM-DD   去重地址（按日）
+ */
+async function recordUsage(address: string) {
+  // 本地开发不统计，避免调试数据干扰
+  if (!process.env.VERCEL) return;
+
+  const addr = address.toLowerCase();
+  const now = new Date();
+  const day = now.toISOString().slice(0, 10); // 例如 2025-12-07
+
+  try {
+    const pipeline = statsRedis.pipeline();
+
+    // 总请求数
+    pipeline.incr("stats:requests:total");
+
+    // 今日请求数
+    pipeline.incr(`stats:requests:day:${day}`);
+
+    // 全局去重地址
+    pipeline.pfadd("stats:users:addresses", addr);
+
+    // 今日去重地址
+    pipeline.pfadd(`stats:users:addresses:${day}`, addr);
+
+    await pipeline.exec();
+  } catch (err) {
+    // 统计失败不能影响正常返回
+    console.error("[stats] recordUsage error", err);
+  }
+}
 
 // 地址简单校验
 function normalizeAddress(address: string | null | undefined): string | null {
@@ -131,6 +175,10 @@ async function handleReport(addressRaw: string | null | undefined) {
 
       meta,
     };
+
+    // ✅ 统计一次使用（web + bot 统一）
+    // 不阻塞主流程，统计失败也不会影响接口返回
+    void recordUsage(address);
 
     return NextResponse.json(report, {
       status: 200,
