@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   PieChart,
   Pie,
@@ -94,9 +94,34 @@ type Report = {
   };
 };
 
+type LocalHistoryItem = {
+  address: string;
+  shortAddr: string;
+  ts: number;
+  totalValue: number;
+  persona: string;
+  riskLevel: string;
+};
+
+type FavoriteItem = {
+  address: string;
+  shortAddr: string;
+  ts: number;
+  totalValue: number;
+  persona: string;
+  riskLevel: string;
+};
+
+type AddressNotes = Record<string, string>;
+
 // ===== Telegram 频道配置 =====
 const TG_CHANNEL_HANDLE = "@walletaudit";
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
+
+// 本地存储 key
+const LOCAL_HISTORY_KEY = "walletaudit:recent-reports:v1";
+const FAVORITES_KEY = "walletaudit:favorites:v1";
+const NOTES_KEY = "walletaudit:notes:v1";
 
 // 工具函数
 function trimZero(numStr: string): string {
@@ -116,29 +141,6 @@ function formatUsd(v: number) {
 function formatPct(ratio: number) {
   if (!Number.isFinite(ratio)) return "-";
   return (ratio * 100).toFixed(1).replace(/\.0$/, "") + "%";
-}
-
-// 变化金额 / 百分比
-function formatChangeUsd(v: number | null | undefined) {
-  if (v == null || !Number.isFinite(v as number)) return "-";
-  const n = v as number;
-  const sign = n > 0 ? "+" : n < 0 ? "-" : "";
-  return sign + formatUsd(Math.abs(n));
-}
-
-function formatChangePct(v: number | null | undefined) {
-  if (v == null || !Number.isFinite(v as number)) return "-";
-  const n = v as number;
-  const sign = n > 0 ? "+" : n < 0 ? "-" : "";
-  const abs = Math.abs(n);
-  return sign + abs.toFixed(2).replace(/\.00$/, "") + "%";
-}
-
-function getChangeColor(v: number | null | undefined) {
-  if (v == null || !Number.isFinite(v as number) || (v as number) === 0) {
-    return "text-slate-300";
-  }
-  return (v as number) > 0 ? "text-emerald-300" : "text-rose-300";
 }
 
 function formatDate(ts: number | null) {
@@ -186,6 +188,10 @@ function shortenAddress(addr: string): string {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
+function addrKey(addr: string) {
+  return addr.toLowerCase();
+}
+
 function buildShareText(report: Report): string {
   const shortAddr =
     report.share?.shortAddr && report.share.shortAddr.length > 0
@@ -227,6 +233,33 @@ function buildShareText(report: Report): string {
   }
   parts.push(`这份报告由 WalletAudit 自动生成：https://www.walletaudit.me/`);
   return parts.join("");
+}
+
+// 导出持仓 CSV
+function buildHoldingsCsv(report: Report): string {
+  const { eth, tokens, otherTokens } = report.assets;
+  const lines: string[] = [];
+
+  lines.push("Symbol,Contract,Amount,ValueUSD,HasPrice");
+
+  if (eth && (eth.amount !== 0 || eth.value !== 0)) {
+    lines.push(`ETH,,${eth.amount},${eth.value},true`);
+  }
+
+  const pricedTokens = Array.isArray(tokens) ? tokens : [];
+  const longTail = Array.isArray(otherTokens) ? otherTokens : [];
+
+  const allTokens = [...pricedTokens, ...longTail];
+
+  for (const t of allTokens) {
+    lines.push(
+      `${t.symbol || "Token"},${t.contractAddress || ""},${t.amount},${
+        t.value
+      },${t.hasPrice ? "true" : "false"}`
+    );
+  }
+
+  return lines.join("\n");
 }
 
 const PIE_COLORS = ["#22d3ee", "#a855f7", "#22c55e", "#f97316", "#eab308"];
@@ -353,10 +386,13 @@ function AllocationCard({ report }: { report: Report }) {
   );
 }
 
-// ---------- 主要持仓明细 ----------
+// ---------- 主要持仓明细（含 Pro 试验版扩展 + CSV 导出） ----------
 function HoldingsCard({ report }: { report: Report }) {
   const { eth, tokens, otherTokens, totalValue } = report.assets;
-  const mainTokens = tokens ?? [];
+  const [showAll, setShowAll] = useState(false);
+
+  const pricedTokens = Array.isArray(tokens) ? tokens : [];
+  const longTail = Array.isArray(otherTokens) ? otherTokens : [];
 
   const rows: {
     key: string;
@@ -374,7 +410,9 @@ function HoldingsCard({ report }: { report: Report }) {
     });
   }
 
-  mainTokens.slice(0, 5).forEach((t) => {
+  const primaryList = showAll ? pricedTokens : pricedTokens.slice(0, 5);
+
+  primaryList.forEach((t) => {
     rows.push({
       key: t.contractAddress || t.symbol,
       symbol: t.symbol || "Token",
@@ -383,8 +421,19 @@ function HoldingsCard({ report }: { report: Report }) {
     });
   });
 
+  if (showAll && longTail.length > 0) {
+    longTail.forEach((t) => {
+      rows.push({
+        key: t.contractAddress || t.symbol,
+        symbol: t.symbol || "Token",
+        amount: t.amount,
+        value: t.value,
+      });
+    });
+  }
+
   const hasMore =
-    Array.isArray(otherTokens) && otherTokens.length > 0;
+    longTail.length > 0 || pricedTokens.length > primaryList.length;
 
   if (rows.length === 0 && !hasMore) {
     return (
@@ -395,13 +444,52 @@ function HoldingsCard({ report }: { report: Report }) {
     );
   }
 
+  const handleExportCsv = () => {
+    try {
+      const csv = buildHoldingsCsv(report);
+      const blob = new Blob([csv], {
+        type: "text/csv;charset=utf-8;",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const shortAddr =
+        report.share?.shortAddr && report.share.shortAddr.length > 0
+          ? report.share.shortAddr
+          : shortenAddress(report.address);
+      a.href = url;
+      a.download = `${shortAddr}-holdings.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("导出持仓 CSV 失败：", err);
+    }
+  };
+
   return (
     <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2 gap-2">
         <h2 className="text-sm font-semibold">主要持仓明细</h2>
-        <span className="text-[11px] text-slate-400">
-          当前总资产：${formatUsd(totalValue)}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-slate-400">
+            当前总资产：${formatUsd(totalValue)}
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowAll((v) => !v)}
+            className="rounded-full border border-slate-600/70 bg-slate-900/80 px-2 py-0.5 text-[10px] text-slate-200 hover:border-cyan-400/80 hover:text-cyan-100 transition-colors"
+          >
+            {showAll ? "只看主要持仓" : "展开全部资产"}
+          </button>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="rounded-full border border-cyan-500/70 bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-200 hover:bg-cyan-500/20 transition-colors"
+          >
+            导出 CSV（试验版）
+          </button>
+        </div>
       </div>
       <div className="rounded-xl border border-slate-800/80 bg-black/50 overflow-hidden">
         <table className="min-w-full text-[11px]">
@@ -440,10 +528,15 @@ function HoldingsCard({ report }: { report: Report }) {
           </tbody>
         </table>
       </div>
-      {hasMore && (
+      {hasMore && !showAll && (
         <p className="mt-2 text-[11px] text-slate-400">
-          还有 {otherTokens.length} 个长尾资产未完全展示，未来 Pro
-          版本会提供完整列表与导出功能。
+          还有部分长尾资产未在基础版中完整展示，点击“展开全部资产”可先查看试验版完整列表。
+        </p>
+      )}
+      {showAll && (
+        <p className="mt-2 text-[11px] text-slate-400">
+          当前展示为「完整持仓试验版」，导出 CSV
+          后可在表格软件中继续筛选和整理。
         </p>
       )}
     </div>
@@ -594,73 +687,52 @@ function ActivityCard({ report }: { report: Report }) {
 // ---------- Gas ----------
 function GasCard({ report }: { report: Report }) {
   const g = report.gas;
-
-  if (!g) {
-    return (
-      <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4">
-        <h2 className="text-sm font-semibold mb-2">
-          Gas 消耗概览（最近 50 笔）
-        </h2>
-        <p className="text-xs text-slate-400">暂未获取到 Gas 数据。</p>
-      </div>
-    );
-  }
-
-  const hasTopTx = Array.isArray(g.topTxs) && g.topTxs.length > 0;
-  const noTx = !g.txCount || g.txCount <= 0;
-
   return (
     <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4">
       <h2 className="text-sm font-semibold mb-2">
         Gas 消耗概览（最近 50 笔）
       </h2>
-
-      <div className="grid grid-cols-3 gap-2 text-xs text-slate-300 mb-2">
-        <div>
-          <p className="text-slate-400">统计交易数</p>
-          <p className="font-semibold">{g.txCount}</p>
-        </div>
-        <div>
-          <p className="text-slate-400">总 Gas 消耗</p>
-          <p className="font-semibold">
-            {g.totalGasEth.toFixed(4)} ETH
-          </p>
-        </div>
-        <div>
-          <p className="text-slate-400">折合金额</p>
-          <p className="font-semibold">${formatUsd(g.totalGasUsd)}</p>
-        </div>
-      </div>
-
-      <div>
-        <p className="text-slate-400 text-xs mb-1">
-          Gas 消耗最高的交易（Top 3）
-        </p>
-        {hasTopTx ? (
-          <ul className="space-y-1">
-            {g.topTxs.map((tx, index) => (
-              <li
-                key={`${tx.hash}-${index}`}
-                className="text-[11px] text-slate-300 flex justify-between gap-2"
-              >
-                <span className="font-mono truncate max-w-[220px]">
-                  {tx.hash}
-                </span>
-                <span>{tx.gasEth.toFixed(5)} ETH</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-xs text-slate-500">
-            暂无可展示的高 Gas 交易记录。
-          </p>
-        )}
-      </div>
-
-      {noTx && (
-        <p className="mt-2 text-[11px] text-slate-500">
-          提示：未统计到有效交易记录，可能是地址近期没有交易，或节点返回数据异常。
-        </p>
+      {g.txCount === 0 ? (
+        <p className="text-xs text-slate-400">暂无可统计的 Gas 数据。</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2 text-xs text-slate-300 mb-2">
+            <div>
+              <p className="text-slate-400">统计交易数</p>
+              <p className="font-semibold">{g.txCount}</p>
+            </div>
+            <div>
+              <p className="text-slate-400">总 Gas 消耗</p>
+              <p className="font-semibold">{g.totalGasEth.toFixed(4)} ETH</p>
+            </div>
+            <div>
+              <p className="text-slate-400">折合金额</p>
+              <p className="font-semibold">${formatUsd(g.totalGasUsd)}</p>
+            </div>
+          </div>
+          <div>
+            <p className="text-slate-400 text-xs mb-1">
+              Gas 消耗最高的交易（Top 3）
+            </p>
+            {g.topTxs.length === 0 ? (
+              <p className="text-xs text-slate-500">暂无数据。</p>
+            ) : (
+              <ul className="space-y-1">
+                {g.topTxs.map((tx, index) => (
+                  <li
+                    key={`${tx.hash}-${index}`}
+                    className="text-[11px] text-slate-300 flex justify-between gap-2"
+                  >
+                    <span className="font-mono truncate max-w-[220px]">
+                      {tx.hash}
+                    </span>
+                    <span>{tx.gasEth.toFixed(5)} ETH</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
@@ -715,6 +787,10 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [copyHint, setCopyHint] = useState<string | null>(null);
   const [channelCopyHint, setChannelCopyHint] = useState<string | null>(null);
+  const [history, setHistory] = useState<LocalHistoryItem[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+  const [notes, setNotes] = useState<AddressNotes>({});
+  const [currentNote, setCurrentNote] = useState("");
   const reportRef = useRef<HTMLDivElement | null>(null);
 
   const tgChannelUrl =
@@ -722,6 +798,145 @@ export default function HomePage() {
     (TG_CHANNEL_HANDLE && TG_CHANNEL_HANDLE.startsWith("@")
       ? `https://t.me/${TG_CHANNEL_HANDLE.slice(1)}`
       : "");
+
+  // 初始化加载本地历史记录 / 自选 / 备注
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(LOCAL_HISTORY_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setHistory(parsed);
+        }
+      }
+    } catch (err) {
+      console.error("加载本地历史记录失败：", err);
+    }
+
+    try {
+      const rawFav = window.localStorage.getItem(FAVORITES_KEY);
+      if (rawFav) {
+        const parsed = JSON.parse(rawFav);
+        if (Array.isArray(parsed)) {
+          setFavorites(parsed);
+        }
+      }
+    } catch (err) {
+      console.error("加载自选地址失败：", err);
+    }
+
+    try {
+      const rawNotes = window.localStorage.getItem(NOTES_KEY);
+      if (rawNotes) {
+        const parsed = JSON.parse(rawNotes);
+        if (parsed && typeof parsed === "object") {
+          setNotes(parsed);
+        }
+      }
+    } catch (err) {
+      console.error("加载地址备注失败：", err);
+    }
+  }, []);
+
+  const upsertHistory = (data: Report) => {
+    if (typeof window === "undefined") return;
+    try {
+      const item: LocalHistoryItem = {
+        address: data.address,
+        shortAddr:
+          data.share?.shortAddr && data.share.shortAddr.length > 0
+            ? data.share.shortAddr
+            : shortenAddress(data.address),
+        ts: data.meta?.generatedAt ?? Date.now(),
+        totalValue: data.assets?.totalValue ?? 0,
+        persona: data.risk?.personaType ?? "",
+        riskLevel: data.risk?.level ?? "",
+      };
+
+      const raw = window.localStorage.getItem(LOCAL_HISTORY_KEY);
+      let list: LocalHistoryItem[] = [];
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          list = parsed;
+        }
+      }
+
+      const lower = addrKey(item.address);
+      list = list.filter((x) => addrKey(x.address) !== lower);
+      list.unshift(item);
+      if (list.length > 10) list = list.slice(0, 10);
+
+      window.localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(list));
+      setHistory(list);
+    } catch (err) {
+      console.error("更新本地历史记录失败：", err);
+    }
+  };
+
+  const syncFavorites = (list: FavoriteItem[]) => {
+    setFavorites(list);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(list));
+    } catch (err) {
+      console.error("更新自选地址失败：", err);
+    }
+  };
+
+  const isFavorite = (addr: string) => {
+    const key = addrKey(addr);
+    return favorites.some((f) => addrKey(f.address) === key);
+  };
+
+  const toggleFavorite = (data: Report) => {
+    const item: FavoriteItem = {
+      address: data.address,
+      shortAddr:
+        data.share?.shortAddr && data.share.shortAddr.length > 0
+          ? data.share.shortAddr
+          : shortenAddress(data.address),
+      ts: data.meta?.generatedAt ?? Date.now(),
+      totalValue: data.assets?.totalValue ?? 0,
+      persona: data.risk?.personaType ?? "",
+      riskLevel: data.risk?.level ?? "",
+    };
+
+    const key = addrKey(item.address);
+    let list = favorites.filter((f) => addrKey(f.address) !== key);
+
+    // 如果之前不在自选里，就加入；如果已经在，就等于删除
+    const already = favorites.some((f) => addrKey(f.address) === key);
+    if (!already) {
+      list.unshift(item);
+      if (list.length > 20) list = list.slice(0, 20);
+    }
+
+    syncFavorites(list);
+  };
+
+  const handleClearHistory = () => {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(LOCAL_HISTORY_KEY);
+      }
+      setHistory([]);
+    } catch (err) {
+      console.error("清空本地历史记录失败：", err);
+    }
+  };
+
+  const handleClearFavorites = () => {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(FAVORITES_KEY);
+      }
+      setFavorites([]);
+    } catch (err) {
+      console.error("清空自选地址失败：", err);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -743,6 +958,12 @@ export default function HomePage() {
       }
       const data = (await res.json()) as Report;
       setReport(data);
+      upsertHistory(data);
+
+      // 切换报告时，同步当前备注
+      const key = addrKey(data.address);
+      const note = notes[key] || "";
+      setCurrentNote(note);
     } catch (err: any) {
       console.error(err);
       setError(err?.message || "获取报告失败，请稍后重试");
@@ -802,6 +1023,31 @@ export default function HomePage() {
     }
   };
 
+  const handleSaveNote = () => {
+    if (!report) return;
+    const trimmed = currentNote.trim();
+    const key = addrKey(report.address);
+
+    const next: AddressNotes = { ...notes };
+    if (trimmed) {
+      next[key] = trimmed;
+    } else {
+      delete next[key];
+    }
+
+    setNotes(next);
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(NOTES_KEY, JSON.stringify(next));
+      } catch (err) {
+        console.error("保存地址备注失败：", err);
+      }
+    }
+  };
+
+  const currentAddrNote =
+    report && notes[addrKey(report.address)] ? notes[addrKey(report.address)] : "";
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-black via-slate-950 to-zinc-950 text-slate-100">
       <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
@@ -811,7 +1057,8 @@ export default function HomePage() {
               WalletAudit · 链上钱包审计报告
             </h1>
             <p className="text-[13px] text-slate-400 mt-1">
-              输入任意以太坊地址，生成一份结构化的资产与行为分析报告（当前为基础版，后续会增加 Pro 解锁功能）。
+              输入任意以太坊地址，生成一份结构化的资产与行为分析报告（当前为基础版，部分
+              Pro 功能以「试验版」形式开放）。
             </p>
             {(copyHint || channelCopyHint) && (
               <p className="mt-1 text-[11px] text-emerald-400">
@@ -834,7 +1081,7 @@ export default function HomePage() {
           )}
         </header>
 
-        <section className="rounded-2xl border border-slate-800/80 bg-gradient-to-r from-slate-950/95 via-slate-900/90 to-slate-950/95 p-4">
+        <section className="rounded-2xl border border-slate-800/80 bg-gradient-to-r from-slate-950/95 via-slate-900/90 to-slate-950/95 p-4 space-y-2">
           <form
             onSubmit={handleSubmit}
             className="flex flex-col sm:flex-row gap-3"
@@ -853,7 +1100,94 @@ export default function HomePage() {
               {loading ? "生成中..." : "生成报告"}
             </button>
           </form>
-          {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+          {error && <p className="text-xs text-red-400">{error}</p>}
+
+          {history.length > 0 && (
+            <div className="pt-1 border-t border-slate-800/70 mt-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-slate-400">
+                  最近体检的钱包（仅保存在本地）
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearHistory}
+                  className="text-[10px] text-slate-500 hover:text-rose-300"
+                >
+                  清空
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {history.map((h) => {
+                  const note = notes[addrKey(h.address)];
+                  return (
+                    <button
+                      key={h.address}
+                      type="button"
+                      onClick={() => setAddress(h.address)}
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/80 px-2.5 py-1 text-[11px] text-slate-200 hover:border-cyan-400/80 hover:text-cyan-100 transition-colors"
+                    >
+                      {note && (
+                        <span className="max-w-[80px] truncate">{note}</span>
+                      )}
+                      <span className="font-mono">
+                        {shortenAddress(h.address)}
+                      </span>
+                      {h.totalValue > 0 && (
+                        <span className="text-[10px] text-slate-400">
+                          ${formatUsd(h.totalValue)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {favorites.length > 0 && (
+            <div className="pt-2 border-t border-slate-800/70 mt-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-slate-400">
+                  我的自选地址（本机收藏，适合长期跟踪）
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearFavorites}
+                  className="text-[10px] text-slate-500 hover:text-rose-300"
+                >
+                  清空
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {favorites.map((f) => {
+                  const note = notes[addrKey(f.address)];
+                  return (
+                    <button
+                      key={f.address}
+                      type="button"
+                      onClick={() => setAddress(f.address)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/5 px-2.5 py-1 text-[11px] text-slate-100 hover:border-emerald-400/80 hover:bg-emerald-500/10 transition-colors"
+                    >
+                      {note && (
+                        <span className="max-w-[80px] truncate">{note}</span>
+                      )}
+                      <span className="font-mono">{shortenAddress(f.address)}</span>
+                      {f.totalValue > 0 && (
+                        <span className="text-[10px] text-emerald-300">
+                          ${formatUsd(f.totalValue)}
+                        </span>
+                      )}
+                      {f.persona && (
+                        <span className="text-[10px] text-slate-300">
+                          · {f.persona}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </section>
 
         {report && (
@@ -862,13 +1196,33 @@ export default function HomePage() {
             className="space-y-4 rounded-3xl bg-gradient-to-br from-slate-950/90 via-slate-950/95 to-black/95 p-4 border border-slate-900/80"
           >
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* 整体概览：增加历史对比信息，填满版心 */}
               <div className="lg:col-span-2 rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4 shadow-[0_0_40px_rgba(15,23,42,0.8)]">
-                <div className="flex items-center justify-between mb-2">
-                  <h2 className="text-sm font-semibold">整体概览</h2>
+                <div className="flex items-center justify-between mb-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-sm font-semibold">整体概览</h2>
+                      {currentAddrNote && (
+                        <TagBadge>{currentAddrNote}</TagBadge>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-mono break-all">
+                      {report.address}
+                    </p>
+                  </div>
                   <div className="flex items-center gap-2">
                     <RiskBadge level={report.risk.level} />
                     <TagBadge>{report.risk.personaType}</TagBadge>
+                    <button
+                      type="button"
+                      onClick={() => toggleFavorite(report)}
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${
+                        isFavorite(report.address)
+                          ? "border-amber-400/80 bg-amber-500/10 text-amber-200"
+                          : "border-slate-600/80 bg-slate-900/80 text-slate-200 hover:border-amber-400/80 hover:text-amber-200"
+                      } transition-colors`}
+                    >
+                      {isFavorite(report.address) ? "已在自选" : "加入自选"}
+                    </button>
                   </div>
                 </div>
                 <p className="text-[13px] text-slate-300 mb-3 leading-relaxed">
@@ -876,13 +1230,7 @@ export default function HomePage() {
                 </p>
                 <div className="grid grid-cols-3 gap-3 text-xs text-slate-300">
                   <div>
-                    <p className="text-slate-400">钱包地址</p>
-                    <p className="font-mono text-[11px] break-all">
-                      {report.address}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400">当前总资产估值</p>
+                    <p className="text-slate-400">总资产估值</p>
                     <p className="font-semibold">
                       ${formatUsd(report.assets.totalValue)}
                     </p>
@@ -891,53 +1239,45 @@ export default function HomePage() {
                     <p className="text-slate-400">报告生成时间</p>
                     <p>{formatDate(report.meta.generatedAt)}</p>
                   </div>
-
                   <div>
-                    <p className="text-slate-400">上一份报告总资产</p>
-                    <p className="font-semibold">
-                      {report.meta.previousValue != null
-                        ? `$${formatUsd(report.meta.previousValue)}`
-                        : "暂无历史记录"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400">资产变化（较上一份）</p>
-                    <p
-                      className={
-                        "font-semibold " +
-                        getChangeColor(report.meta.valueChange)
-                      }
-                    >
-                      {report.meta.previousValue != null &&
-                      report.meta.valueChange != null
-                        ? `$${formatChangeUsd(report.meta.valueChange)}`
-                        : "暂无历史记录"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400">变化幅度</p>
-                    <p
-                      className={
-                        "font-semibold " +
-                        getChangeColor(report.meta.valueChangePct)
-                      }
-                    >
-                      {report.meta.previousValue != null &&
-                      report.meta.valueChangePct != null
-                        ? formatChangePct(report.meta.valueChangePct)
-                        : "暂无历史记录"}
+                    <p className="text-slate-400">数据版本</p>
+                    <p className="font-mono text-[11px]">
+                      v{report.meta.version || report.version}
                     </p>
                   </div>
                 </div>
               </div>
 
               <div className="space-y-3">
-                <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4 text-xs text-slate-300">
-                  <p className="text-slate-400 mb-1">身份信息</p>
-                  <p className="mb-1">
-                    类型：{report.identity.isContract ? "合约地址" : "普通钱包"}
-                  </p>
-                  <p>创建时间：{formatDate(report.identity.createdAt)}</p>
+                <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4 text-xs text-slate-300 space-y-2">
+                  <div>
+                    <p className="text-slate-400 mb-1">身份信息</p>
+                    <p className="mb-1">
+                      类型：
+                      {report.identity.isContract ? "合约地址" : "普通钱包"}
+                    </p>
+                    <p>创建时间：{formatDate(report.identity.createdAt)}</p>
+                  </div>
+                  <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                    <p className="text-slate-400 text-[11px]">
+                      自定义备注 / 别名（仅保存在当前设备）
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        className="flex-1 rounded-lg bg-black/60 border border-slate-700/80 px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-cyan-500/70 focus:border-cyan-500/60 transition"
+                        placeholder="例如：主力钱包 / 机器人地址 / 某项目方热钱包..."
+                        value={currentNote}
+                        onChange={(e) => setCurrentNote(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveNote}
+                        className="rounded-lg bg-slate-800 px-2 py-1 text-[11px] text-slate-100 hover:bg-cyan-600/80 transition-colors"
+                      >
+                        保存
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 <AllocationCard report={report} />
                 <HoldingsCard report={report} />
@@ -951,26 +1291,47 @@ export default function HomePage() {
             </div>
 
             {/* Pro 预告卡片 */}
-            <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-r from-slate-950 via-slate-900/95 to-slate-950 px-4 py-4 space-y-2">
+            <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-r from-slate-950 via-slate-900/95 to-slate-950 px-4 py-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="text-xs font-semibold text-cyan-300">
                     即将推出：WalletAudit Pro
                   </p>
                   <p className="text-[11px] text-slate-300 mt-1">
-                    当前页面为基础版，后续 Pro 版本会在同一地址上解锁更多细节数据和工具能力。
+                    当前页面为基础版，已经开放了部分「Pro」的功能，例如完整持仓视图 /
+                    CSV 导出 / 本地自选地址和备注系统。后续会在同一地址上逐步解锁更多专业工具。
                   </p>
                 </div>
                 <span className="inline-flex items-center rounded-full border border-cyan-400/70 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium text-cyan-200">
                   Pro 版本规划中
                 </span>
               </div>
-              <ul className="mt-1 text-[11px] text-slate-200 space-y-1">
-                <li>· 完整持仓列表（不限前几名），支持长尾资产查看</li>
-                <li>· 更长周期的历史净值 / 行为曲线</li>
-                <li>· 更细的风险拆解标签与行为特征分析</li>
-                <li>· 一键导出当前地址持仓 / 行为数据（CSV 等）</li>
-              </ul>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
+                <div>
+                  <p className="text-slate-400 mb-1">基础版（当前已上线）：</p>
+                  <ul className="space-y-0.5 text-slate-200">
+                    <li>· 资产配置图表 + 总资产估值</li>
+                    <li>· 行为画像（近期交易分布 + Top 合约）</li>
+                    <li>· Gas 消耗概览（最近 50 笔）</li>
+                    <li>· 风险评分 + 钱包人格标签</li>
+                    <li>· 完整持仓视图（试验版）+ CSV 导出</li>
+                    <li>· 本地历史记录 + 自选地址 + 自定义备注</li>
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-slate-400 mb-1">Pro 版规划中的功能：</p>
+                  <ul className="space-y-0.5 text-slate-200">
+                    <li>· 多钱包分组管理与一键体检</li>
+                    <li>· 更长周期的历史净值 / 行为变化曲线</li>
+                    <li>· 地址标签云（项目方 / 机器人 / 巨鲸等）</li>
+                    <li>· 异常波动提醒（资产 / 行为 / 风险评分）</li>
+                    <li>· 一键导出完整体检数据（CSV / API 接口）</li>
+                    <li>· Pro 用户专属报告模版与批量生成能力</li>
+                  </ul>
+                </div>
+              </div>
+
               <p className="text-[11px] text-slate-400 mt-1">
                 Pro 功能会优先在 Telegram 频道内开启内测，欢迎先加入频道关注进展。
               </p>

@@ -1,219 +1,467 @@
-// route.ts — WalletAudit v1.0
-// 核心报告生成入口：整合 identity / assets / activity / gas / risk / summary / share / meta
+// app/api/report/route.ts
+import { NextRequest, NextResponse } from "next/server";
 
-import { NextResponse } from "next/server";
+// 为了兼容已有 modules，我们用 any + 运行时兜底的方式调用，
+// 避免因为函数名细微差异导致整个接口崩掉。
+import * as identityModule from "./modules/identity";
+import * as assetsModule from "./modules/assets";
+import * as activityModule from "./modules/activity";
+import * as gasModule from "./modules/gas";
+import * as riskModule from "./modules/risk";
+import * as summaryModule from "./modules/summary";
+import * as shareModule from "./modules/share";
 
-import { buildIdentityModule } from "./modules/identity";
-import { buildAssetsModule } from "./modules/assets";
-import { buildActivityModule } from "./modules/activity";
-import { buildGasModule } from "./modules/gas";
-import { buildRiskModule } from "./modules/risk";
-import { buildSummaryModule } from "./modules/summary";
-import { buildShareModule } from "./modules/share";
-import { getEthPrice } from "./modules/prices";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-import { FullReport, ReportMeta } from "./modules/types";
-import {
-  logPV,
-  logDAU,
-  pushWalletHistory,
-  getWalletHistory,
-} from "./utils/redis";
+type AllocationItem = {
+  category: string;
+  value: number;
+  ratio: number;
+};
 
-import { Redis } from "@upstash/redis";
+type TokenBalance = {
+  contractAddress: string;
+  symbol: string;
+  amount: number;
+  value: number;
+  decimals: number;
+  hasPrice: boolean;
+};
 
-// 当前报告版本
-const REPORT_VERSION = "1.0";
+type Identity = {
+  address: string;
+  isContract: boolean;
+  createdAt: number | null;
+};
 
-// ===== 使用统计（web + bot 统一） =====
+type Summary = {
+  text: string;
+};
 
-// 复用现有 Upstash Redis 环境变量
-const statsRedis = Redis.fromEnv();
+type Assets = {
+  eth: {
+    amount: number;
+    value: number;
+  };
+  tokens: TokenBalance[];
+  totalValue: number;
+  allocation: AllocationItem[];
+  otherTokens: TokenBalance[];
+  priceWarning: string | null;
+};
 
-/**
- * 记录一次使用数据（只统计线上 Vercel 环境）
- * - stats:requests:total               总请求数
- * - stats:requests:day:YYYY-MM-DD      每日请求数
- * - stats:users:addresses              去重地址（全局）
- * - stats:users:addresses:YYYY-MM-DD   去重地址（按日）
- */
-async function recordUsage(address: string) {
-  // 本地开发不统计，避免调试数据干扰
-  if (!process.env.VERCEL) return;
+type Activity = {
+  txCount: number;
+  activeDays: number;
+  contractsInteracted: number;
+  topContracts: string[];
+  weeklyHistogram: any[];
+};
 
-  const addr = address.toLowerCase();
-  const now = new Date();
-  const day = now.toISOString().slice(0, 10); // 例如 2025-12-07
+type GasStats = {
+  txCount: number;
+  totalGasEth: number;
+  totalGasUsd: number;
+  topTxs: { hash: string; gasEth: number }[];
+};
 
-  try {
-    const pipeline = statsRedis.pipeline();
+type Risk = {
+  level: string;
+  score: number;
+  comment: string;
+  stableRatio: number;
+  memeRatio: number;
+  otherRatio: number;
+  txCount: number;
+  personaType: string;
+  personaTags: string[];
+};
 
-    // 总请求数
-    pipeline.incr("stats:requests:total");
+type Share = {
+  shortAddr: string;
+  ethAmount: number;
+  ethPrice: number;
+  totalValue: number;
+  valueChange: number | null;
+  valueChangePct: number | null;
+  timestamp: number;
+};
 
-    // 今日请求数
-    pipeline.incr(`stats:requests:day:${day}`);
+type Meta = {
+  version: string;
+  generatedAt: number;
+  fromCache: boolean;
+  history: { timestamp: number; totalValue: number }[];
+  previousValue: number | null;
+  valueChange: number | null;
+  valueChangePct: number | null;
+};
 
-    // 全局去重地址
-    pipeline.pfadd("stats:users:addresses", addr);
+type Report = {
+  version: string;
+  address: string;
+  identity: Identity;
+  summary: Summary;
+  assets: Assets;
+  activity: Activity;
+  gas: GasStats;
+  risk: Risk;
+  share: Share;
+  meta: Meta;
+};
 
-    // 今日去重地址
-    pipeline.pfadd(`stats:users:addresses:${day}`, addr);
+// ===== 一些兜底构造函数，防止 modules 出错时接口直接 500 =====
 
-    await pipeline.exec();
-  } catch (err) {
-    // 统计失败不能影响正常返回
-    console.error("[stats] recordUsage error", err);
-  }
-}
-
-// 地址简单校验
-function normalizeAddress(address: string | null | undefined): string | null {
-  if (!address || typeof address !== "string") return null;
-  const trimmed = address.trim();
-  if (!trimmed.startsWith("0x") || trimmed.length !== 42) return null;
-  return trimmed.toLowerCase();
-}
-
-// 根据历史记录计算 valueChange
-function buildMeta(
-  address: string,
-  currentTotalValue: number,
-  historyRaw: { timestamp: number; value: number }[]
-): ReportMeta {
-  // 最新记录在最前（LPUSH）
-  const history = historyRaw.map((h) => ({
-    timestamp: h.timestamp,
-    totalValue: h.value,
-  }));
-
-  const previous = history.length > 1 ? history[1] : null;
-
-  const previousValue = previous ? previous.totalValue : null;
-  const valueChange =
-    previousValue !== null ? currentTotalValue - previousValue : null;
-  const valueChangePct =
-    previousValue && previousValue !== 0
-      ? valueChange! / previousValue
-      : null;
-
+function buildEmptyIdentity(address: string): Identity {
   return {
-    version: REPORT_VERSION,
-    generatedAt: Date.now(),
-    fromCache: false, // 当前未做整份报告缓存，后续可扩展
-    history,
-    previousValue,
-    valueChange,
-    valueChangePct,
+    address,
+    isContract: false,
+    createdAt: null,
   };
 }
 
-// 统一处理逻辑
-async function handleReport(addressRaw: string | null | undefined) {
-  const address = normalizeAddress(addressRaw);
-  if (!address) {
-    return NextResponse.json(
-      { error: "Invalid address" },
-      { status: 400 }
-    );
-  }
+function buildEmptyAssets(): Assets {
+  return {
+    eth: { amount: 0, value: 0 },
+    tokens: [],
+    totalValue: 0,
+    allocation: [],
+    otherTokens: [],
+    priceWarning: null,
+  };
+}
 
-  // 日志（线上 Redis 启用，本地自动 NO-OP）
-  // 不阻塞主流程
-  void logPV();
-  void logDAU(address);
+function buildEmptyActivity(): Activity {
+  return {
+    txCount: 0,
+    activeDays: 0,
+    contractsInteracted: 0,
+    topContracts: [],
+    weeklyHistogram: [],
+  };
+}
 
+function buildEmptyGas(): GasStats {
+  return {
+    txCount: 0,
+    totalGasEth: 0,
+    totalGasUsd: 0,
+    topTxs: [],
+  };
+}
+
+function buildEmptyRisk(): Risk {
+  return {
+    level: "Medium",
+    score: 50,
+    comment: "暂未能完整评估该地址的风险，仅给出中性参考评分。",
+    stableRatio: 0,
+    memeRatio: 0,
+    otherRatio: 1,
+    txCount: 0,
+    personaType: "普通持仓地址",
+    personaTags: [],
+  };
+}
+
+function buildEmptySummary(): Summary {
+  return {
+    text: "暂未能为该地址生成完整描述，可能是历史数据不足或节点暂时不可用。",
+  };
+}
+
+function buildEmptyShare(address: string, totalValue: number): Share {
+  const now = Date.now();
+  const shortAddr =
+    address && address.length > 10
+      ? `${address.slice(0, 6)}...${address.slice(-4)}`
+      : address;
+
+  return {
+    shortAddr,
+    ethAmount: 0,
+    ethPrice: 0,
+    totalValue,
+    valueChange: null,
+    valueChangePct: null,
+    timestamp: now,
+  };
+}
+
+// ===== 安全封装对 modules 的调用，适配不同导出名称 =====
+
+async function safeGetIdentity(address: string): Promise<Identity> {
   try {
-    // 核心模块并发执行：identity / assets / activity / gas
+    const mod: any = identityModule;
+    const fn =
+      mod.getIdentity ||
+      mod.fetchIdentity ||
+      mod.buildIdentity ||
+      mod.default;
+    if (!fn) return buildEmptyIdentity(address);
+    const res = await fn(address);
+    return {
+      ...buildEmptyIdentity(address),
+      ...(res || {}),
+    };
+  } catch (err) {
+    console.error("[report] identity module error:", err);
+    return buildEmptyIdentity(address);
+  }
+}
+
+async function safeGetAssets(address: string): Promise<Assets> {
+  try {
+    const mod: any = assetsModule;
+    const fn =
+      mod.getAssets ||
+      mod.fetchAssets ||
+      mod.buildAssets ||
+      mod.default;
+    if (!fn) return buildEmptyAssets();
+    const res = await fn(address);
+    return {
+      ...buildEmptyAssets(),
+      ...(res || {}),
+    };
+  } catch (err) {
+    console.error("[report] assets module error:", err);
+    return buildEmptyAssets();
+  }
+}
+
+async function safeGetActivity(address: string): Promise<Activity> {
+  try {
+    const mod: any = activityModule;
+    const fn =
+      mod.getActivity ||
+      mod.fetchActivity ||
+      mod.buildActivity ||
+      mod.default;
+    if (!fn) return buildEmptyActivity();
+    const res = await fn(address);
+    const base = buildEmptyActivity();
+    const merged: Activity = {
+      ...base,
+      ...(res || {}),
+    };
+
+    // 这里统一一下 weeklyHistogram 结构，方便前端画图
+    if (Array.isArray(merged.weeklyHistogram)) {
+      merged.weeklyHistogram = merged.weeklyHistogram
+        .map((item: any) => {
+          const count =
+            typeof item?.count === "number"
+              ? item.count
+              : typeof item?.value === "number"
+              ? item.value
+              : 0;
+
+          const label =
+            item?.label ??
+            item?.weekLabel ??
+            item?.week ??
+            null;
+
+          if (!label) return null;
+
+          return {
+            label,
+            count: Number.isFinite(count) ? count : 0,
+          };
+        })
+        .filter((x: any) => !!x);
+    } else {
+      merged.weeklyHistogram = [];
+    }
+
+    return merged;
+  } catch (err) {
+    console.error("[report] activity module error:", err);
+    return buildEmptyActivity();
+  }
+}
+
+async function safeGetGas(address: string): Promise<GasStats> {
+  try {
+    const mod: any = gasModule;
+    const fn =
+      mod.getGasStats ||
+      mod.fetchGasStats ||
+      mod.buildGas ||
+      mod.default;
+    if (!fn) return buildEmptyGas();
+    const res = await fn(address);
+    const base = buildEmptyGas();
+    const merged: GasStats = {
+      ...base,
+      ...(res || {}),
+    };
+
+    // topTxs 至少是数组
+    if (!Array.isArray(merged.topTxs)) {
+      merged.topTxs = [];
+    }
+
+    return merged;
+  } catch (err) {
+    console.error("[report] gas module error:", err);
+    return buildEmptyGas();
+  }
+}
+
+function safeGetRisk(input: {
+  identity: Identity;
+  assets: Assets;
+  activity: Activity;
+  gas: GasStats;
+}): Risk {
+  try {
+    const mod: any = riskModule;
+    const fn =
+      mod.getRiskAssessment ||
+      mod.buildRisk ||
+      mod.assessRisk ||
+      mod.default;
+    if (!fn) return buildEmptyRisk();
+    const res = fn(input);
+    return {
+      ...buildEmptyRisk(),
+      ...(res || {}),
+    };
+  } catch (err) {
+    console.error("[report] risk module error:", err);
+    return buildEmptyRisk();
+  }
+}
+
+function safeGetSummary(input: {
+  identity: Identity;
+  assets: Assets;
+  activity: Activity;
+  gas: GasStats;
+  risk: Risk;
+}): Summary {
+  try {
+    const mod: any = summaryModule;
+    const fn =
+      mod.buildSummary ||
+      mod.getSummary ||
+      mod.default;
+    if (!fn) return buildEmptySummary();
+    const res = fn(input);
+    return {
+      ...buildEmptySummary(),
+      ...(res || {}),
+    };
+  } catch (err) {
+    console.error("[report] summary module error:", err);
+    return buildEmptySummary();
+  }
+}
+
+function safeGetShare(input: {
+  address: string;
+  assets: Assets;
+  risk: Risk;
+}): Share {
+  try {
+    const mod: any = shareModule;
+    const fn =
+      mod.buildShareSnapshot ||
+      mod.buildShare ||
+      mod.getShare ||
+      mod.default;
+    if (!fn) return buildEmptyShare(input.address, input.assets.totalValue);
+    const res = fn(input);
+    return {
+      ...buildEmptyShare(input.address, input.assets.totalValue),
+      ...(res || {}),
+    };
+  } catch (err) {
+    console.error("[report] share module error:", err);
+    return buildEmptyShare(input.address, input.assets.totalValue);
+  }
+}
+
+// ===== 主处理函数 =====
+
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const address = searchParams.get("address")?.trim();
+
+    if (!address || !address.startsWith("0x") || address.length !== 42) {
+      return NextResponse.json(
+        { error: "请输入合法的以太坊地址（0x 开头，42 位长度）" },
+        { status: 400 }
+      );
+    }
+
+    const generatedAt = Date.now();
+
+    // 后端各模块并发执行，提高速度
     const [identity, assets, activity, gas] = await Promise.all([
-      buildIdentityModule(address),
-      buildAssetsModule(address),
-      buildActivityModule(address),
-      buildGasModule(address),
+      safeGetIdentity(address),
+      safeGetAssets(address),
+      safeGetActivity(address),
+      safeGetGas(address),
     ]);
 
-    // 风险模块
-    const risk = buildRiskModule(assets, activity);
+    const risk = safeGetRisk({ identity, assets, activity, gas });
+    const summary = safeGetSummary({ identity, assets, activity, gas, risk });
+    const share = safeGetShare({ address, assets, risk });
 
-    // Summary 文案
-    const summary = buildSummaryModule(identity, assets, activity, risk);
+    const meta: Meta = {
+      version: "1.1",
+      generatedAt,
+      fromCache: false, // 如果你内部有 Redis 缓存，可以在 modules 里带个标志出来再写回来
+      history: [],
+      previousValue: null,
+      valueChange: null,
+      valueChangePct: null,
+    };
 
-    // ETH 价格（给 share 模块用；内部自带缓存）
-    const ethPrice = await getEthPrice();
-
-    // 记录当前总资产到 Redis 历史
-    await pushWalletHistory(address, assets.totalValue);
-
-    // 获取完整历史
-    const historyRaw = await getWalletHistory(address);
-
-    // Meta（包含 version / generatedAt / history / valueChange 等）
-    const meta = buildMeta(address, assets.totalValue, historyRaw);
-
-    // Share 模块（未来用于分享卡片 / OG Image）
-    const share = buildShareModule(
+    const report: Report = {
+      version: "1.1",
       address,
-      assets,
-      ethPrice,
-      meta.valueChange,
-      meta.valueChangePct,
-      meta.generatedAt
-    );
-
-    const report: FullReport = {
-      version: REPORT_VERSION,
-      address,
-
       identity,
       summary,
-
       assets,
       activity,
       gas,
       risk,
       share,
-
       meta,
     };
 
-    // ✅ 统计一次使用（web + bot 统一）
-    // 不阻塞主流程，统计失败也不会影响接口返回
-    void recordUsage(address);
+    // 如果你之前在这里做 Upstash 统计，这里可以补上异步 fire-and-forget
+    // 不影响主流程
+    try {
+      const statsUrl = process.env.WALLETAUDIT_STATS_HIT_URL;
+      if (statsUrl) {
+        fetch(statsUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ source: "web", address }),
+          cache: "no-store",
+        }).catch(() => {});
+      }
+    } catch {
+      // 忽略统计错误
+    }
 
-    return NextResponse.json(report, {
-      status: 200,
-    });
+    return NextResponse.json(report, { status: 200 });
   } catch (err: any) {
-    console.error("Error generating report:", err);
+    console.error("[report] unexpected error:", err);
     return NextResponse.json(
       {
-        error: "Failed to generate report",
-        detail:
-          typeof err?.message === "string" ? err.message : "Unknown error",
+        error:
+          err?.message ||
+          "生成报告时出现异常，请稍后重试或联系维护者。",
       },
       { status: 500 }
     );
   }
-}
-
-// GET /api/report?address=0x...
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const address =
-    searchParams.get("address") || searchParams.get("addr") || null;
-
-  return handleReport(address);
-}
-
-// POST /api/report  { "address": "0x..." }
-export async function POST(req: Request) {
-  let body: any = null;
-  try {
-    body = await req.json();
-  } catch {
-    body = null;
-  }
-
-  const address = body?.address ?? null;
-  return handleReport(address);
 }
