@@ -126,6 +126,15 @@ function formatDate(ts: number | null) {
   return d.toLocaleString();
 }
 
+// Token 数量显示（兼顾大额和小额）
+function formatTokenAmount(v: number) {
+  if (!Number.isFinite(v) || v === 0) return "0";
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) return trimZero(v.toFixed(0));
+  if (abs >= 1) return trimZero(v.toFixed(4));
+  return trimZero(v.toFixed(6));
+}
+
 function RiskBadge({ level }: { level: string }) {
   const color =
     level === "Low"
@@ -217,9 +226,7 @@ function AllocationCard({ report }: { report: Report }) {
   return (
     <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 shadow-[0_0_40px_rgba(15,23,42,0.9)] p-4">
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold tracking-wide">
-          资产配置概览
-        </h2>
+        <h2 className="text-sm font-semibold tracking-wide">资产配置概览</h2>
         <span className="text-[11px] text-slate-400">
           总资产：${formatUsd(totalValue)}
         </span>
@@ -319,6 +326,105 @@ function AllocationCard({ report }: { report: Report }) {
       {report.assets.priceWarning && (
         <p className="mt-2 text-[11px] text-amber-300/80">
           {report.assets.priceWarning}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------- 主要持仓明细 ----------
+function HoldingsCard({ report }: { report: Report }) {
+  const { eth, tokens, otherTokens, totalValue } = report.assets;
+  const mainTokens = tokens ?? [];
+
+  const rows: {
+    key: string;
+    symbol: string;
+    amount: number;
+    value: number;
+  }[] = [];
+
+  // ETH 作为第一行
+  if (eth && (eth.amount !== 0 || eth.value !== 0)) {
+    rows.push({
+      key: "ETH",
+      symbol: "ETH",
+      amount: eth.amount,
+      value: eth.value,
+    });
+  }
+
+  // 取前 5 个主要 Token
+  mainTokens.slice(0, 5).forEach((t) => {
+    rows.push({
+      key: t.contractAddress || t.symbol,
+      symbol: t.symbol || "Token",
+      amount: t.amount,
+      value: t.value,
+    });
+  });
+
+  const hasMore =
+    Array.isArray(otherTokens) && otherTokens.length > 0;
+
+  if (rows.length === 0 && !hasMore) {
+    return (
+      <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4 text-xs text-slate-400">
+        <h2 className="text-sm font-semibold mb-2">主要持仓明细</h2>
+        <p>暂未统计到可用的持仓数据。</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-sm font-semibold">主要持仓明细</h2>
+        <span className="text-[11px] text-slate-400">
+          当前总资产：${formatUsd(totalValue)}
+        </span>
+      </div>
+      <div className="rounded-xl border border-slate-800/80 bg-black/50 overflow-hidden">
+        <table className="min-w-full text-[11px]">
+          <thead className="bg-slate-900/80">
+            <tr className="text-slate-400">
+              <th className="px-3 py-2 text-left font-normal">资产</th>
+              <th className="px-3 py-2 text-right font-normal">数量</th>
+              <th className="px-3 py-2 text-right font-normal">估值 (USD)</th>
+              <th className="px-3 py-2 text-right font-normal">占比</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const ratio =
+                totalValue > 0 ? row.value / totalValue : 0;
+              return (
+                <tr
+                  key={row.key}
+                  className="border-t border-slate-800/80 text-slate-200"
+                >
+                  <td className="px-3 py-1.5 align-middle">
+                    <span className="font-medium">{row.symbol}</span>
+                  </td>
+                  <td className="px-3 py-1.5 text-right align-middle font-mono">
+                    {formatTokenAmount(row.amount)}
+                  </td>
+                  <td className="px-3 py-1.5 text-right align-middle">
+                    ${formatUsd(row.value)}
+                  </td>
+                  <td className="px-3 py-1.5 text-right align-middle">
+                    {formatPct(ratio)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {hasMore && (
+        <p className="mt-2 text-[11px] text-slate-400">
+          还有 {otherTokens.length} 个长尾资产未完全展示，未来 Pro
+          版本会提供完整列表与导出功能。
         </p>
       )}
     </div>
@@ -434,7 +540,9 @@ function GasCard({ report }: { report: Report }) {
   const g = report.gas;
   return (
     <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4">
-      <h2 className="text-sm font-semibold mb-2">Gas 消耗概览（最近 50 笔）</h2>
+      <h2 className="text-sm font-semibold mb-2">
+        Gas 消耗概览（最近 50 笔）
+      </h2>
       {g.txCount === 0 ? (
         <p className="text-xs text-slate-400">暂无可统计的 Gas 数据。</p>
       ) : (
@@ -446,15 +554,11 @@ function GasCard({ report }: { report: Report }) {
             </div>
             <div>
               <p className="text-slate-400">总 Gas 消耗</p>
-              <p className="font-semibold">
-                {g.totalGasEth.toFixed(4)} ETH
-              </p>
+              <p className="font-semibold">{g.totalGasEth.toFixed(4)} ETH</p>
             </div>
             <div>
               <p className="text-slate-400">折合金额</p>
-              <p className="font-semibold">
-                ${formatUsd(g.totalGasUsd)}
-              </p>
+              <p className="font-semibold">${formatUsd(g.totalGasUsd)}</p>
             </div>
           </div>
           <div>
@@ -555,14 +659,10 @@ export default function HomePage() {
 
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/report?address=${encodeURIComponent(addr)}`
-      );
+      const res = await fetch(`/api/report?address=${encodeURIComponent(addr)}`);
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(
-          data?.error || `接口返回错误：${res.status}`
-        );
+        throw new Error(data?.error || `接口返回错误：${res.status}`);
       }
       const data = (await res.json()) as Report;
       setReport(data);
@@ -676,9 +776,7 @@ export default function HomePage() {
               {loading ? "生成中..." : "生成报告"}
             </button>
           </form>
-          {error && (
-            <p className="text-xs text-red-400 mt-2">{error}</p>
-          )}
+          {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
         </section>
 
         {report && (
@@ -727,6 +825,7 @@ export default function HomePage() {
                   <p>创建时间：{formatDate(report.identity.createdAt)}</p>
                 </div>
                 <AllocationCard report={report} />
+                <HoldingsCard report={report} />
               </div>
             </div>
 
