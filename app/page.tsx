@@ -55,7 +55,7 @@ type Report = {
     activeDays: number;
     contractsInteracted: number;
     topContracts: string[];
-    weeklyHistogram: { weekStart: number; count: number }[];
+    weeklyHistogram: any[]; // 后端数据格式不强约束，前端自己兼容
   };
   gas: {
     txCount: number;
@@ -95,9 +95,7 @@ type Report = {
 };
 
 // ===== Telegram 频道配置 =====
-// 展示用：写「@频道名」
 const TG_CHANNEL_HANDLE = "@walletaudit";
-// 跳转用：完整 URL
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
 
 // 工具函数
@@ -118,6 +116,29 @@ function formatUsd(v: number) {
 function formatPct(ratio: number) {
   if (!Number.isFinite(ratio)) return "-";
   return (ratio * 100).toFixed(1).replace(/\.0$/, "") + "%";
+}
+
+// 变化金额 / 百分比
+function formatChangeUsd(v: number | null | undefined) {
+  if (v == null || !Number.isFinite(v as number)) return "-";
+  const n = v as number;
+  const sign = n > 0 ? "+" : n < 0 ? "-" : "";
+  return sign + formatUsd(Math.abs(n));
+}
+
+function formatChangePct(v: number | null | undefined) {
+  if (v == null || !Number.isFinite(v as number)) return "-";
+  const n = v as number;
+  const sign = n > 0 ? "+" : n < 0 ? "-" : "";
+  const abs = Math.abs(n);
+  return sign + abs.toFixed(2).replace(/\.00$/, "") + "%";
+}
+
+function getChangeColor(v: number | null | undefined) {
+  if (v == null || !Number.isFinite(v as number) || (v as number) === 0) {
+    return "text-slate-300";
+  }
+  return (v as number) > 0 ? "text-emerald-300" : "text-rose-300";
 }
 
 function formatDate(ts: number | null) {
@@ -344,7 +365,6 @@ function HoldingsCard({ report }: { report: Report }) {
     value: number;
   }[] = [];
 
-  // ETH 作为第一行
   if (eth && (eth.amount !== 0 || eth.value !== 0)) {
     rows.push({
       key: "ETH",
@@ -354,7 +374,6 @@ function HoldingsCard({ report }: { report: Report }) {
     });
   }
 
-  // 取前 5 个主要 Token
   mainTokens.slice(0, 5).forEach((t) => {
     rows.push({
       key: t.contractAddress || t.symbol,
@@ -435,17 +454,54 @@ function HoldingsCard({ report }: { report: Report }) {
 function ActivityCard({ report }: { report: Report }) {
   const a = report.activity;
 
-  const hist = [...(a.weeklyHistogram ?? [])]
-    .sort((x, y) => x.weekStart - y.weekStart)
-    .slice(-8)
-    .map((item) => {
-      const d = new Date(item.weekStart);
-      const label = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+  // 兼容不同版本的 weeklyHistogram 数据结构
+  const raw = Array.isArray(a.weeklyHistogram) ? a.weeklyHistogram : [];
+
+  const hist = raw
+    .map((item: any) => {
+      const count =
+        typeof item.count === "number"
+          ? item.count
+          : typeof item.value === "number"
+          ? item.value
+          : 0;
+
+      const labelField =
+        item.label ??
+        item.weekLabel ??
+        item.week ??
+        null;
+
+      let label: string | null = labelField;
+
+      if (!label) {
+        const ts =
+          typeof item.weekStart === "number"
+            ? item.weekStart
+            : typeof item.timestamp === "number"
+            ? item.timestamp
+            : null;
+
+        if (ts !== null) {
+          const d = new Date(ts);
+          if (!isNaN(d.getTime())) {
+            label = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+          }
+        }
+      }
+
+      if (!label) {
+        return null;
+      }
+
       return {
         label,
-        count: item.count,
+        count: Number.isFinite(count) ? count : 0,
       };
-    });
+    })
+    .filter((x): x is { label: string; count: number } => !!x);
+
+  const hasData = hist.length > 0 && hist.some((h) => h.count > 0);
 
   return (
     <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4">
@@ -470,7 +526,7 @@ function ActivityCard({ report }: { report: Report }) {
           </div>
 
           <div className="h-40 mb-3 rounded-xl border border-slate-800/80 bg-slate-950/90">
-            {hist.length === 0 ? (
+            {!hasData ? (
               <p className="text-xs text-slate-500 p-3">
                 近期交易分布数据不足，无法绘制图表。
               </p>
@@ -538,52 +594,73 @@ function ActivityCard({ report }: { report: Report }) {
 // ---------- Gas ----------
 function GasCard({ report }: { report: Report }) {
   const g = report.gas;
+
+  if (!g) {
+    return (
+      <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4">
+        <h2 className="text-sm font-semibold mb-2">
+          Gas 消耗概览（最近 50 笔）
+        </h2>
+        <p className="text-xs text-slate-400">暂未获取到 Gas 数据。</p>
+      </div>
+    );
+  }
+
+  const hasTopTx = Array.isArray(g.topTxs) && g.topTxs.length > 0;
+  const noTx = !g.txCount || g.txCount <= 0;
+
   return (
     <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4">
       <h2 className="text-sm font-semibold mb-2">
         Gas 消耗概览（最近 50 笔）
       </h2>
-      {g.txCount === 0 ? (
-        <p className="text-xs text-slate-400">暂无可统计的 Gas 数据。</p>
-      ) : (
-        <>
-          <div className="grid grid-cols-3 gap-2 text-xs text-slate-300 mb-2">
-            <div>
-              <p className="text-slate-400">统计交易数</p>
-              <p className="font-semibold">{g.txCount}</p>
-            </div>
-            <div>
-              <p className="text-slate-400">总 Gas 消耗</p>
-              <p className="font-semibold">{g.totalGasEth.toFixed(4)} ETH</p>
-            </div>
-            <div>
-              <p className="text-slate-400">折合金额</p>
-              <p className="font-semibold">${formatUsd(g.totalGasUsd)}</p>
-            </div>
-          </div>
-          <div>
-            <p className="text-slate-400 text-xs mb-1">
-              Gas 消耗最高的交易（Top 3）
-            </p>
-            {g.topTxs.length === 0 ? (
-              <p className="text-xs text-slate-500">暂无数据。</p>
-            ) : (
-              <ul className="space-y-1">
-                {g.topTxs.map((tx, index) => (
-                  <li
-                    key={`${tx.hash}-${index}`} // 确保 key 唯一
-                    className="text-[11px] text-slate-300 flex justify-between gap-2"
-                  >
-                    <span className="font-mono truncate max-w-[220px]">
-                      {tx.hash}
-                    </span>
-                    <span>{tx.gasEth.toFixed(5)} ETH</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </>
+
+      <div className="grid grid-cols-3 gap-2 text-xs text-slate-300 mb-2">
+        <div>
+          <p className="text-slate-400">统计交易数</p>
+          <p className="font-semibold">{g.txCount}</p>
+        </div>
+        <div>
+          <p className="text-slate-400">总 Gas 消耗</p>
+          <p className="font-semibold">
+            {g.totalGasEth.toFixed(4)} ETH
+          </p>
+        </div>
+        <div>
+          <p className="text-slate-400">折合金额</p>
+          <p className="font-semibold">${formatUsd(g.totalGasUsd)}</p>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-slate-400 text-xs mb-1">
+          Gas 消耗最高的交易（Top 3）
+        </p>
+        {hasTopTx ? (
+          <ul className="space-y-1">
+            {g.topTxs.map((tx, index) => (
+              <li
+                key={`${tx.hash}-${index}`}
+                className="text-[11px] text-slate-300 flex justify-between gap-2"
+              >
+                <span className="font-mono truncate max-w-[220px]">
+                  {tx.hash}
+                </span>
+                <span>{tx.gasEth.toFixed(5)} ETH</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-slate-500">
+            暂无可展示的高 Gas 交易记录。
+          </p>
+        )}
+      </div>
+
+      {noTx && (
+        <p className="mt-2 text-[11px] text-slate-500">
+          提示：未统计到有效交易记录，可能是地址近期没有交易，或节点返回数据异常。
+        </p>
       )}
     </div>
   );
@@ -727,14 +804,14 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-black via-slate-950 to-zinc-950 text-slate-100">
-      <div className="mx-auto max-w-6xl px-4 py-6 space-y-6">
+      <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-xl font-semibold tracking-wide">
+            <h1 className="text-2xl font-semibold tracking-wide">
               WalletAudit · 链上钱包审计报告
             </h1>
-            <p className="text-xs text-slate-400 mt-1">
-              输入任意以太坊地址，生成一份结构化的资产与行为分析报告。
+            <p className="text-[13px] text-slate-400 mt-1">
+              输入任意以太坊地址，生成一份结构化的资产与行为分析报告（当前为基础版，后续会增加 Pro 解锁功能）。
             </p>
             {(copyHint || channelCopyHint) && (
               <p className="mt-1 text-[11px] text-emerald-400">
@@ -785,6 +862,7 @@ export default function HomePage() {
             className="space-y-4 rounded-3xl bg-gradient-to-br from-slate-950/90 via-slate-950/95 to-black/95 p-4 border border-slate-900/80"
           >
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* 整体概览：增加历史对比信息，填满版心 */}
               <div className="lg:col-span-2 rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4 shadow-[0_0_40px_rgba(15,23,42,0.8)]">
                 <div className="flex items-center justify-between mb-2">
                   <h2 className="text-sm font-semibold">整体概览</h2>
@@ -793,7 +871,7 @@ export default function HomePage() {
                     <TagBadge>{report.risk.personaType}</TagBadge>
                   </div>
                 </div>
-                <p className="text-xs text-slate-300 mb-3">
+                <p className="text-[13px] text-slate-300 mb-3 leading-relaxed">
                   {report.summary.text}
                 </p>
                 <div className="grid grid-cols-3 gap-3 text-xs text-slate-300">
@@ -804,7 +882,7 @@ export default function HomePage() {
                     </p>
                   </div>
                   <div>
-                    <p className="text-slate-400">总资产估值</p>
+                    <p className="text-slate-400">当前总资产估值</p>
                     <p className="font-semibold">
                       ${formatUsd(report.assets.totalValue)}
                     </p>
@@ -812,6 +890,43 @@ export default function HomePage() {
                   <div>
                     <p className="text-slate-400">报告生成时间</p>
                     <p>{formatDate(report.meta.generatedAt)}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-400">上一份报告总资产</p>
+                    <p className="font-semibold">
+                      {report.meta.previousValue != null
+                        ? `$${formatUsd(report.meta.previousValue)}`
+                        : "暂无历史记录"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400">资产变化（较上一份）</p>
+                    <p
+                      className={
+                        "font-semibold " +
+                        getChangeColor(report.meta.valueChange)
+                      }
+                    >
+                      {report.meta.previousValue != null &&
+                      report.meta.valueChange != null
+                        ? `$${formatChangeUsd(report.meta.valueChange)}`
+                        : "暂无历史记录"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400">变化幅度</p>
+                    <p
+                      className={
+                        "font-semibold " +
+                        getChangeColor(report.meta.valueChangePct)
+                      }
+                    >
+                      {report.meta.previousValue != null &&
+                      report.meta.valueChangePct != null
+                        ? formatChangePct(report.meta.valueChangePct)
+                        : "暂无历史记录"}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -833,6 +948,32 @@ export default function HomePage() {
               <ActivityCard report={report} />
               <GasCard report={report} />
               <RiskCard report={report} />
+            </div>
+
+            {/* Pro 预告卡片 */}
+            <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-r from-slate-950 via-slate-900/95 to-slate-950 px-4 py-4 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-cyan-300">
+                    即将推出：WalletAudit Pro
+                  </p>
+                  <p className="text-[11px] text-slate-300 mt-1">
+                    当前页面为基础版，后续 Pro 版本会在同一地址上解锁更多细节数据和工具能力。
+                  </p>
+                </div>
+                <span className="inline-flex items-center rounded-full border border-cyan-400/70 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium text-cyan-200">
+                  Pro 版本规划中
+                </span>
+              </div>
+              <ul className="mt-1 text-[11px] text-slate-200 space-y-1">
+                <li>· 完整持仓列表（不限前几名），支持长尾资产查看</li>
+                <li>· 更长周期的历史净值 / 行为曲线</li>
+                <li>· 更细的风险拆解标签与行为特征分析</li>
+                <li>· 一键导出当前地址持仓 / 行为数据（CSV 等）</li>
+              </ul>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Pro 功能会优先在 Telegram 频道内开启内测，欢迎先加入频道关注进展。
+              </p>
             </div>
 
             {TG_CHANNEL_HANDLE && tgChannelUrl && (
