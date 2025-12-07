@@ -94,27 +94,23 @@ type Report = {
   };
 };
 
+// ===== Telegram 频道配置 =====
+// 展示用：写「@频道名」
+const TG_CHANNEL_HANDLE = "@walletaudit";
+// 跳转用：完整 URL
+const TG_CHANNEL_URL = "https://t.me/walletaudit";
+
+// 工具函数
 function trimZero(numStr: string): string {
   return numStr.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
 }
 
-// 金额短格式：统一用「万 / 亿」
 function formatUsd(v: number) {
   if (!Number.isFinite(v) || v <= 0) return "0";
-
-  if (v < 1_000) {
-    return trimZero(v.toFixed(2));
-  }
-
-  if (v < 10_000) {
-    return String(Math.round(v));
-  }
-
+  if (v < 1_000) return trimZero(v.toFixed(2));
+  if (v < 10_000) return String(Math.round(v));
   const wan = v / 10_000;
-  if (wan < 10_000) {
-    return `${trimZero(wan.toFixed(2))}万`;
-  }
-
+  if (wan < 10_000) return `${trimZero(wan.toFixed(2))}万`;
   const yi = wan / 10_000;
   return `${trimZero(yi.toFixed(2))}亿`;
 }
@@ -155,13 +151,11 @@ function TagBadge({ children }: { children: React.ReactNode }) {
   );
 }
 
-// 地址缩写，用于分享文案
 function shortenAddress(addr: string): string {
   if (!addr || addr.length <= 10) return addr;
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
-// 构造分享文案（中文，一句话可直接发到社交平台）
 function buildShareText(report: Report): string {
   const shortAddr =
     report.share?.shortAddr && report.share.shortAddr.length > 0
@@ -190,7 +184,6 @@ function buildShareText(report: Report): string {
       : "";
 
   const parts: string[] = [];
-
   parts.push(
     `我的以太坊地址 ${shortAddr}，当前总资产约 ${totalText} 美元，属于「${persona}」。`
   );
@@ -203,19 +196,16 @@ function buildShareText(report: Report): string {
     parts.push(`近期几乎没有主动交易行为。`);
   }
   parts.push(`这份报告由 WalletAudit 自动生成：https://www.walletaudit.me/`);
-
   return parts.join("");
 }
 
-// 液态金属风格：冷色荧光 + 深色背景
 const PIE_COLORS = ["#22d3ee", "#a855f7", "#22c55e", "#f97316", "#eab308"];
 
-// ---------- 资产配置卡片（饼图） ----------
+// ---------- 资产配置 ----------
 function AllocationCard({ report }: { report: Report }) {
   const allocation = report.assets?.allocation ?? [];
   const totalValue = report.assets?.totalValue ?? 0;
 
-  // 图表用比例做数据源，保证扇区比例正确
   const chartData = allocation
     .filter((item) => item.ratio > 0)
     .map((item) => ({
@@ -241,7 +231,6 @@ function AllocationCard({ report }: { report: Report }) {
         </p>
       ) : (
         <div className="flex flex-col sm:flex-row gap-4">
-          {/* 饼图：厚圆环风格 */}
           <div className="h-44 sm:h-40 sm:flex-1">
             <div className="relative h-full w-full rounded-2xl bg-gradient-to-br from-slate-900/80 via-slate-950/90 to-black/90 border border-slate-800/90 overflow-hidden">
               <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(148,163,184,0.35),_transparent_60%)]" />
@@ -285,7 +274,6 @@ function AllocationCard({ report }: { report: Report }) {
                     />
                   </PieChart>
                 </ResponsiveContainer>
-                {/* 中心数值 */}
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-[11px] text-slate-300">
                   <span className="text-[10px] text-slate-500 mb-0.5">
                     总资产估值
@@ -298,7 +286,6 @@ function AllocationCard({ report }: { report: Report }) {
             </div>
           </div>
 
-          {/* 右侧列表 */}
           <div className="sm:flex-1">
             <ul className="space-y-1.5 text-xs">
               {allocation.map((item) => (
@@ -338,7 +325,7 @@ function AllocationCard({ report }: { report: Report }) {
   );
 }
 
-// ---------- 行为画像卡片（柱状图） ----------
+// ---------- 行为画像 ----------
 function ActivityCard({ report }: { report: Report }) {
   const a = report.activity;
 
@@ -442,7 +429,7 @@ function ActivityCard({ report }: { report: Report }) {
   );
 }
 
-// ---------- Gas 卡片 ----------
+// ---------- Gas ----------
 function GasCard({ report }: { report: Report }) {
   const g = report.gas;
   return (
@@ -478,9 +465,9 @@ function GasCard({ report }: { report: Report }) {
               <p className="text-xs text-slate-500">暂无数据。</p>
             ) : (
               <ul className="space-y-1">
-                {g.topTxs.map((tx) => (
+                {g.topTxs.map((tx, index) => (
                   <li
-                    key={tx.hash}
+                    key={`${tx.hash}-${index}`} // 确保 key 唯一
                     className="text-[11px] text-slate-300 flex justify-between gap-2"
                   >
                     <span className="font-mono truncate max-w-[220px]">
@@ -498,7 +485,7 @@ function GasCard({ report }: { report: Report }) {
   );
 }
 
-// ---------- 风险卡片 ----------
+// ---------- 风险 ----------
 function RiskCard({ report }: { report: Report }) {
   const r = report.risk;
   return (
@@ -546,7 +533,14 @@ export default function HomePage() {
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copyHint, setCopyHint] = useState<string | null>(null);
+  const [channelCopyHint, setChannelCopyHint] = useState<string | null>(null);
   const reportRef = useRef<HTMLDivElement | null>(null);
+
+  const tgChannelUrl =
+    TG_CHANNEL_URL ||
+    (TG_CHANNEL_HANDLE && TG_CHANNEL_HANDLE.startsWith("@")
+      ? `https://t.me/${TG_CHANNEL_HANDLE.slice(1)}`
+      : "");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -588,7 +582,6 @@ export default function HomePage() {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text);
       } else {
-        // 兼容旧浏览器
         const textarea = document.createElement("textarea");
         textarea.value = text;
         textarea.style.position = "fixed";
@@ -607,6 +600,31 @@ export default function HomePage() {
     }
   };
 
+  const handleCopyChannel = async () => {
+    if (!TG_CHANNEL_HANDLE) return;
+    try {
+      const text = TG_CHANNEL_HANDLE;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setChannelCopyHint("频道名已复制，可在 TG 搜索栏直接粘贴。");
+      setTimeout(() => setChannelCopyHint(null), 2500);
+    } catch (err) {
+      console.error("复制频道名失败：", err);
+      setChannelCopyHint("复制失败，可以手动选中频道名复制。");
+      setTimeout(() => setChannelCopyHint(null), 2500);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-black via-slate-950 to-zinc-950 text-slate-100">
       <div className="mx-auto max-w-6xl px-4 py-6 space-y-6">
@@ -618,8 +636,10 @@ export default function HomePage() {
             <p className="text-xs text-slate-400 mt-1">
               输入任意以太坊地址，生成一份结构化的资产与行为分析报告。
             </p>
-            {copyHint && (
-              <p className="mt-1 text-[11px] text-emerald-400">{copyHint}</p>
+            {(copyHint || channelCopyHint) && (
+              <p className="mt-1 text-[11px] text-emerald-400">
+                {copyHint || channelCopyHint}
+              </p>
             )}
           </div>
           {report && (
@@ -662,12 +682,10 @@ export default function HomePage() {
         </section>
 
         {report && (
-          // 容器留着，未来做分享卡片可以继续复用
           <section
             ref={reportRef}
             className="space-y-4 rounded-3xl bg-gradient-to-br from-slate-950/90 via-slate-950/95 to-black/95 p-4 border border-slate-900/80"
           >
-            {/* 上方 Summary + 基本信息 */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4 shadow-[0_0_40px_rgba(15,23,42,0.8)]">
                 <div className="flex items-center justify-between mb-2">
@@ -706,20 +724,51 @@ export default function HomePage() {
                   <p className="mb-1">
                     类型：{report.identity.isContract ? "合约地址" : "普通钱包"}
                   </p>
-                  <p>
-                    创建时间：{formatDate(report.identity.createdAt)}
-                  </p>
+                  <p>创建时间：{formatDate(report.identity.createdAt)}</p>
                 </div>
                 <AllocationCard report={report} />
               </div>
             </div>
 
-            {/* 下方：行为 / Gas / 风险 */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <ActivityCard report={report} />
               <GasCard report={report} />
               <RiskCard report={report} />
             </div>
+
+            {TG_CHANNEL_HANDLE && tgChannelUrl && (
+              <div className="mt-2 rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-slate-950 via-slate-900/90 to-slate-950 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-emerald-300">
+                    想看更多典型钱包体检 & 高级功能内测？
+                  </p>
+                  <p className="text-[11px] text-slate-300 mt-1">
+                    关注 Telegram 频道{" "}
+                    <span className="font-mono text-emerald-300">
+                      {TG_CHANNEL_HANDLE}
+                    </span>
+                    ，获取后续更新与 Pro 版进展。
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={tgChannelUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center rounded-full bg-emerald-500 px-3 py-1.5 text-[11px] font-semibold text-slate-950 shadow-[0_0_18px_rgba(16,185,129,0.6)] hover:bg-emerald-400 transition-colors"
+                  >
+                    打开频道
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleCopyChannel}
+                    className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/20 transition-colors"
+                  >
+                    复制频道名
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
         )}
       </div>
