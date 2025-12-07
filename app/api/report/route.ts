@@ -88,6 +88,23 @@ type Share = {
   timestamp: number;
 };
 
+type ModuleDebug = {
+  identityOk: boolean;
+  identityError?: string;
+
+  assetsOk: boolean;
+  assetsError?: string;
+
+  activityOk: boolean;
+  activityError?: string;
+
+  gasOk: boolean;
+  gasError?: string;
+
+  rpcFallbackUsed?: boolean;
+  rpcFallbackError?: string;
+};
+
 type Meta = {
   version: string;
   generatedAt: number;
@@ -96,6 +113,7 @@ type Meta = {
   previousValue: number | null;
   valueChange: number | null;
   valueChangePct: number | null;
+  debug?: ModuleDebug;
 };
 
 type Report = {
@@ -189,9 +207,93 @@ function buildEmptyShare(address: string, totalValue: number): Share {
   };
 }
 
+// ===== 基础工具：RPC & 价格兜底 =====
+
+async function fetchEthBalanceViaRpc(address: string): Promise<number | null> {
+  const rpcUrl = process.env.ALCHEMY_RPC_URL;
+  if (!rpcUrl) return null;
+
+  try {
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_getBalance",
+        params: [address, "latest"],
+      }),
+    });
+
+    const data: any = await res.json();
+    const hex = data?.result;
+    if (!hex || typeof hex !== "string") return null;
+
+    // 十六进制 wei -> ETH
+    const wei = BigInt(hex);
+    const eth = Number(wei) / 1e18;
+    if (!Number.isFinite(eth)) return null;
+
+    return eth;
+  } catch (err) {
+    console.error("[report] fetchEthBalanceViaRpc error:", err);
+    return null;
+  }
+}
+
+async function fetchEthPriceFromApi(): Promise<number | null> {
+  try {
+    const priceProxyBase = process.env.PRICE_PROXY_BASE;
+    const cgKey = process.env.COINGECKO_DEMO_API_KEY;
+
+    // 优先走你现有的 price-proxy
+    if (priceProxyBase) {
+      const res = await fetch(
+        `${priceProxyBase.replace(/\/$/, "")}/api/price-proxy?symbol=eth`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) return null;
+      const data: any = await res.json();
+      const p =
+        typeof data?.price === "number"
+          ? data.price
+          : typeof data?.usd === "number"
+          ? data.usd
+          : null;
+      if (p && p > 0) return p;
+      return null;
+    }
+
+    // 退而求其次：直接请求 CoinGecko
+    const url =
+      "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd" +
+      (cgKey ? `&x_cg_demo_api_key=${cgKey}` : "");
+
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const p = data?.ethereum?.usd;
+    if (typeof p === "number" && p > 0) return p;
+    return null;
+  } catch (err) {
+    console.error("[report] fetchEthPriceFromApi error:", err);
+    return null;
+  }
+}
+
+async function getEthPriceWithFallback(): Promise<number> {
+  const fallback = 2600; // 本地 / 极端情况兜底
+  const price = await fetchEthPriceFromApi();
+  if (price && price > 0) return price;
+  return fallback;
+}
+
 // ===== 安全封装对 modules 的调用，适配不同导出名称 =====
 
-async function safeGetIdentity(address: string): Promise<Identity> {
+async function safeGetIdentity(
+  address: string,
+  debug: ModuleDebug,
+): Promise<Identity> {
   try {
     const mod: any = identityModule;
     const fn =
@@ -199,19 +301,29 @@ async function safeGetIdentity(address: string): Promise<Identity> {
       mod.fetchIdentity ||
       mod.buildIdentity ||
       mod.default;
-    if (!fn) return buildEmptyIdentity(address);
+    if (!fn) {
+      debug.identityOk = false;
+      debug.identityError = "NO_IDENTITY_FN";
+      return buildEmptyIdentity(address);
+    }
     const res = await fn(address);
+    debug.identityOk = true;
     return {
       ...buildEmptyIdentity(address),
       ...(res || {}),
     };
-  } catch (err) {
+  } catch (err: any) {
     console.error("[report] identity module error:", err);
+    debug.identityOk = false;
+    debug.identityError = String(err?.message || err);
     return buildEmptyIdentity(address);
   }
 }
 
-async function safeGetAssets(address: string): Promise<Assets> {
+async function safeGetAssets(
+  address: string,
+  debug: ModuleDebug,
+): Promise<Assets> {
   try {
     const mod: any = assetsModule;
     const fn =
@@ -219,19 +331,29 @@ async function safeGetAssets(address: string): Promise<Assets> {
       mod.fetchAssets ||
       mod.buildAssets ||
       mod.default;
-    if (!fn) return buildEmptyAssets();
+    if (!fn) {
+      debug.assetsOk = false;
+      debug.assetsError = "NO_ASSETS_FN";
+      return buildEmptyAssets();
+    }
     const res = await fn(address);
+    debug.assetsOk = true;
     return {
       ...buildEmptyAssets(),
       ...(res || {}),
     };
-  } catch (err) {
+  } catch (err: any) {
     console.error("[report] assets module error:", err);
+    debug.assetsOk = false;
+    debug.assetsError = String(err?.message || err);
     return buildEmptyAssets();
   }
 }
 
-async function safeGetActivity(address: string): Promise<Activity> {
+async function safeGetActivity(
+  address: string,
+  debug: ModuleDebug,
+): Promise<Activity> {
   try {
     const mod: any = activityModule;
     const fn =
@@ -239,7 +361,11 @@ async function safeGetActivity(address: string): Promise<Activity> {
       mod.fetchActivity ||
       mod.buildActivity ||
       mod.default;
-    if (!fn) return buildEmptyActivity();
+    if (!fn) {
+      debug.activityOk = false;
+      debug.activityError = "NO_ACTIVITY_FN";
+      return buildEmptyActivity();
+    }
     const res = await fn(address);
     const base = buildEmptyActivity();
     const merged: Activity = {
@@ -276,14 +402,20 @@ async function safeGetActivity(address: string): Promise<Activity> {
       merged.weeklyHistogram = [];
     }
 
+    debug.activityOk = true;
     return merged;
-  } catch (err) {
+  } catch (err: any) {
     console.error("[report] activity module error:", err);
+    debug.activityOk = false;
+    debug.activityError = String(err?.message || err);
     return buildEmptyActivity();
   }
 }
 
-async function safeGetGas(address: string): Promise<GasStats> {
+async function safeGetGas(
+  address: string,
+  debug: ModuleDebug,
+): Promise<GasStats> {
   try {
     const mod: any = gasModule;
     const fn =
@@ -291,7 +423,11 @@ async function safeGetGas(address: string): Promise<GasStats> {
       mod.fetchGasStats ||
       mod.buildGas ||
       mod.default;
-    if (!fn) return buildEmptyGas();
+    if (!fn) {
+      debug.gasOk = false;
+      debug.gasError = "NO_GAS_FN";
+      return buildEmptyGas();
+    }
     const res = await fn(address);
     const base = buildEmptyGas();
     const merged: GasStats = {
@@ -304,9 +440,12 @@ async function safeGetGas(address: string): Promise<GasStats> {
       merged.topTxs = [];
     }
 
+    debug.gasOk = true;
     return merged;
-  } catch (err) {
+  } catch (err: any) {
     console.error("[report] gas module error:", err);
+    debug.gasOk = false;
+    debug.gasError = String(err?.message || err);
     return buildEmptyGas();
   }
 }
@@ -390,24 +529,67 @@ function safeGetShare(input: {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const address = searchParams.get("address")?.trim();
+    const addressRaw = searchParams.get("address")?.trim();
+    const address =
+      addressRaw && addressRaw.startsWith("0x")
+        ? addressRaw
+        : "";
 
-    if (!address || !address.startsWith("0x") || address.length !== 42) {
+    if (!address || address.length !== 42) {
       return NextResponse.json(
         { error: "请输入合法的以太坊地址（0x 开头，42 位长度）" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     const generatedAt = Date.now();
 
+    const debug: ModuleDebug = {
+      identityOk: false,
+      assetsOk: false,
+      activityOk: false,
+      gasOk: false,
+    };
+
     // 后端各模块并发执行，提高速度
-    const [identity, assets, activity, gas] = await Promise.all([
-      safeGetIdentity(address),
-      safeGetAssets(address),
-      safeGetActivity(address),
-      safeGetGas(address),
+    const [identity, rawAssets, activity, gas] = await Promise.all([
+      safeGetIdentity(address, debug),
+      safeGetAssets(address, debug),
+      safeGetActivity(address, debug),
+      safeGetGas(address, debug),
     ]);
+
+    let assets = rawAssets;
+
+    // ===== 关键补丁：如果 assets 模块返回 0，总资产走 RPC 兜底 =====
+    try {
+      const needRpcFallback =
+        (!assets || (!assets.eth?.amount && !assets.totalValue)) &&
+        !!process.env.ALCHEMY_RPC_URL;
+
+      if (needRpcFallback) {
+        const ethAmount = await fetchEthBalanceViaRpc(address);
+        if (ethAmount !== null && ethAmount > 0) {
+          const ethPrice = await getEthPriceWithFallback();
+          const totalValue = ethAmount * ethPrice;
+
+          assets = {
+            ...buildEmptyAssets(),
+            ...(assets || {}),
+            eth: {
+              amount: ethAmount,
+              value: totalValue,
+            },
+            totalValue,
+          };
+
+          debug.rpcFallbackUsed = true;
+        }
+      }
+    } catch (err: any) {
+      console.error("[report] rpc fallback error:", err);
+      debug.rpcFallbackError = String(err?.message || err);
+    }
 
     const risk = safeGetRisk({ identity, assets, activity, gas });
     const summary = safeGetSummary({ identity, assets, activity, gas, risk });
@@ -421,6 +603,7 @@ export async function GET(req: NextRequest) {
       previousValue: null,
       valueChange: null,
       valueChangePct: null,
+      debug,
     };
 
     const report: Report = {
@@ -461,7 +644,7 @@ export async function GET(req: NextRequest) {
           err?.message ||
           "生成报告时出现异常，请稍后重试或联系维护者。",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
