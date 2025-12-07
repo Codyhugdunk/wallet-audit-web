@@ -207,6 +207,26 @@ function buildEmptyShare(address: string, totalValue: number): Share {
   };
 }
 
+// ===== 基础工具：从模块里“找出主函数” =====
+
+function pickModuleFn(mod: any, candidates: string[] = []): any | null {
+  if (!mod) return null;
+
+  // 1）优先按候选名字找（兼容我们之前约定的命名）
+  for (const name of candidates) {
+    const fn = (mod as any)[name];
+    if (typeof fn === "function") return fn;
+  }
+
+  // 2）如果候选都没有，就从所有导出里找第一个 function
+  for (const key of Object.keys(mod)) {
+    const v = (mod as any)[key];
+    if (typeof v === "function") return v;
+  }
+
+  return null;
+}
+
 // ===== 基础工具：RPC & 价格兜底 =====
 
 async function fetchEthBalanceViaRpc(address: string): Promise<number | null> {
@@ -296,11 +316,12 @@ async function safeGetIdentity(
 ): Promise<Identity> {
   try {
     const mod: any = identityModule;
-    const fn =
-      mod.getIdentity ||
-      mod.fetchIdentity ||
-      mod.buildIdentity ||
-      mod.default;
+    const fn = pickModuleFn(mod, [
+      "getIdentity",
+      "fetchIdentity",
+      "buildIdentity",
+      "default",
+    ]);
     if (!fn) {
       debug.identityOk = false;
       debug.identityError = "NO_IDENTITY_FN";
@@ -326,11 +347,12 @@ async function safeGetAssets(
 ): Promise<Assets> {
   try {
     const mod: any = assetsModule;
-    const fn =
-      mod.getAssets ||
-      mod.fetchAssets ||
-      mod.buildAssets ||
-      mod.default;
+    const fn = pickModuleFn(mod, [
+      "getAssets",
+      "fetchAssets",
+      "buildAssets",
+      "default",
+    ]);
     if (!fn) {
       debug.assetsOk = false;
       debug.assetsError = "NO_ASSETS_FN";
@@ -356,11 +378,12 @@ async function safeGetActivity(
 ): Promise<Activity> {
   try {
     const mod: any = activityModule;
-    const fn =
-      mod.getActivity ||
-      mod.fetchActivity ||
-      mod.buildActivity ||
-      mod.default;
+    const fn = pickModuleFn(mod, [
+      "getActivity",
+      "fetchActivity",
+      "buildActivity",
+      "default",
+    ]);
     if (!fn) {
       debug.activityOk = false;
       debug.activityError = "NO_ACTIVITY_FN";
@@ -385,10 +408,7 @@ async function safeGetActivity(
               : 0;
 
           const label =
-            item?.label ??
-            item?.weekLabel ??
-            item?.week ??
-            null;
+            item?.label ?? item?.weekLabel ?? item?.week ?? null;
 
           if (!label) return null;
 
@@ -418,11 +438,12 @@ async function safeGetGas(
 ): Promise<GasStats> {
   try {
     const mod: any = gasModule;
-    const fn =
-      mod.getGasStats ||
-      mod.fetchGasStats ||
-      mod.buildGas ||
-      mod.default;
+    const fn = pickModuleFn(mod, [
+      "getGasStats",
+      "fetchGasStats",
+      "buildGas",
+      "default",
+    ]);
     if (!fn) {
       debug.gasOk = false;
       debug.gasError = "NO_GAS_FN";
@@ -458,11 +479,12 @@ function safeGetRisk(input: {
 }): Risk {
   try {
     const mod: any = riskModule;
-    const fn =
-      mod.getRiskAssessment ||
-      mod.buildRisk ||
-      mod.assessRisk ||
-      mod.default;
+    const fn = pickModuleFn(mod, [
+      "getRiskAssessment",
+      "buildRisk",
+      "assessRisk",
+      "default",
+    ]);
     if (!fn) return buildEmptyRisk();
     const res = fn(input);
     return {
@@ -484,10 +506,7 @@ function safeGetSummary(input: {
 }): Summary {
   try {
     const mod: any = summaryModule;
-    const fn =
-      mod.buildSummary ||
-      mod.getSummary ||
-      mod.default;
+    const fn = pickModuleFn(mod, ["buildSummary", "getSummary", "default"]);
     if (!fn) return buildEmptySummary();
     const res = fn(input);
     return {
@@ -507,11 +526,12 @@ function safeGetShare(input: {
 }): Share {
   try {
     const mod: any = shareModule;
-    const fn =
-      mod.buildShareSnapshot ||
-      mod.buildShare ||
-      mod.getShare ||
-      mod.default;
+    const fn = pickModuleFn(mod, [
+      "buildShareSnapshot",
+      "buildShare",
+      "getShare",
+      "default",
+    ]);
     if (!fn) return buildEmptyShare(input.address, input.assets.totalValue);
     const res = fn(input);
     return {
@@ -531,9 +551,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const addressRaw = searchParams.get("address")?.trim();
     const address =
-      addressRaw && addressRaw.startsWith("0x")
-        ? addressRaw
-        : "";
+      addressRaw && addressRaw.startsWith("0x") ? addressRaw : "";
 
     if (!address || address.length !== 42) {
       return NextResponse.json(
