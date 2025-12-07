@@ -140,3 +140,19 @@ export function buildSummaryModule(
     text,
   };
 }
+
+// === 新增：给 route.ts 调用的标准导出名 ===
+export function buildSummary(input: {
+  identity: IdentityInfo;
+  assets: AssetModule;
+  activity: ActivityModule;
+  gas: any;
+  risk: RiskModule;
+}): SummaryModule {
+  return buildSummaryModule(
+    input.identity,
+    input.assets,
+    input.activity,
+    input.risk
+  );
+}

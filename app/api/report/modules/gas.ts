@@ -159,3 +159,8 @@ export async function buildGasModule(address: string): Promise<GasModule> {
     topTxs,
   };
 }
+
+// === 新增：给 route.ts 调用的标准导出名 ===
+export async function getGasStats(address: string): Promise<GasModule> {
+  return buildGasModule(address);
+}

@@ -1,7 +1,13 @@
 // risk.ts — WalletAudit v1.1
 // 资产结构 + 行为画像的轻量风险评估模块 + 钱包人格标签
 
-import { AssetModule, ActivityModule, RiskModule } from "./types";
+import {
+  AssetModule,
+  ActivityModule,
+  RiskModule,
+  IdentityInfo,
+  GasModule,
+} from "./types";
 
 // 简单分级：
 // score >= 70 → Low
@@ -186,4 +192,15 @@ export function buildRiskModule(
     personaType,
     personaTags,
   };
+}
+
+// === 新增：给 route.ts 调用的标准导出名 ===
+export function getRiskAssessment(input: {
+  identity: IdentityInfo;
+  assets: AssetModule;
+  activity: ActivityModule;
+  gas: GasModule;
+}): RiskModule {
+  // 当前风险逻辑只用到 assets + activity，未来要用 identity/gas 再往里加
+  return buildRiskModule(input.assets, input.activity);
 }

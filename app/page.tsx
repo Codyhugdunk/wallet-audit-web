@@ -502,7 +502,7 @@ function HoldingsCard({ report }: { report: Report }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {rows.map((row, idx) => {
               const ratio =
                 totalValue > 0 ? row.value / totalValue : 0;
               return (

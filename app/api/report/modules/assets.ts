@@ -248,3 +248,8 @@ export async function buildAssetsModule(
     priceWarning,
   };
 }
+
+// === 新增：给 route.ts 调用的标准导出名 ===
+export async function getAssets(address: string): Promise<AssetModule> {
+  return buildAssetsModule(address);
+}

@@ -130,3 +130,8 @@ export async function buildActivityModule(
     weeklyHistogram,
   };
 }
+
+// === 新增：给 route.ts 调用的标准导出名 ===
+export async function getActivity(address: string): Promise<ActivityModule> {
+  return buildActivityModule(address);
+}

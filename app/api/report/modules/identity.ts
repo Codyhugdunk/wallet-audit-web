@@ -80,3 +80,8 @@ export async function buildIdentityModule(
     createdAt,
   };
 }
+
+// === 新增：给 route.ts 调用的标准导出名 ===
+export async function getIdentity(address: string): Promise<IdentityInfo> {
+  return buildIdentityModule(address);
+}
