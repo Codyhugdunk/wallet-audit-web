@@ -2,9 +2,6 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import html2canvas from "html2canvas";
-import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
-} from "recharts";
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
   ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, Share2
@@ -118,7 +115,7 @@ const DICT = {
     unknownContract: "未知合约",
     shareBtn: "生成报告卡片",
     downloading: "生成中...",
-    shareTitle: "WalletAudit 链上审计",
+    shareTitle: "WalletAudit 链上审计报告",
     scanToUse: "扫码体检你的钱包"
   },
   en: {
@@ -206,44 +203,34 @@ function formatEth(wei: string) {
 // 3. 核心功能组件 (UI Parts)
 // ==========================================
 
-// ✅ 彻底修复的分享卡片组件
-// 1. 移除所有 Tailwind 类名，使用纯 Style 对象
-// 2. 移除 Lab 颜色，使用 Hex/RGB
-// 3. 宽度设为 400px (手机友好宽度)，高度自适应
+// ✅ 彻底重写：去 Tailwind 化，使用纯 SVG 避免 lab 报错
 function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'|'en', targetRef: any }) {
     const D = DICT[lang];
     const score = report.risk.score;
     const isSafe = score >= 80;
     
-    // 纯 HEX 颜色定义 (html2canvas 绝对支持)
+    // 纯 HEX 颜色，绝不使用 rgba 或 变量
     const bgMain = '#0a0a0a'; 
     const textWhite = '#ffffff';
     const textMuted = '#94a3b8'; 
     const accentColor = isSafe ? '#34d399' : score <= 50 ? '#f87171' : '#fbbf24'; 
-    const borderColor = isSafe ? '#059669' : score <= 50 ? '#dc2626' : '#d97706'; 
-    const bgGlowHex = isSafe ? '#064e3b' : score <= 50 ? '#7f1d1d' : '#78350f'; // Darker glow
+    const bgCard = '#171717';
+    const borderCard = '#262626';
 
     return (
-        <div style={{ 
-            position: 'fixed', 
-            top: 0, 
-            left: 0, 
-            zIndex: -9999, 
-            opacity: 0, 
-            pointerEvents: 'none' 
-        }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, zIndex: -9999, opacity: 0, pointerEvents: 'none' }}>
             <div ref={targetRef} style={{
                 width: '400px', 
                 backgroundColor: bgMain,
-                padding: '24px',
+                padding: '32px',
                 fontFamily: 'sans-serif',
                 border: '1px solid #333',
                 borderRadius: '16px',
                 position: 'relative',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '20px',
-                overflow: 'hidden' // 确保圆角
+                gap: '24px',
+                overflow: 'hidden'
             }}>
                 {/* 顶部装饰条 */}
                 <div style={{
@@ -251,20 +238,13 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
                     backgroundColor: accentColor,
                 }}></div>
 
-                {/* 背景光晕 (纯 CSS 模拟) */}
-                <div style={{
-                    position: 'absolute', top: '-50px', right: '-50px',
-                    width: '200px', height: '200px',
-                    backgroundColor: bgGlowHex,
-                    filter: 'blur(80px)',
-                    opacity: 0.4,
-                    zIndex: 0
-                }}></div>
-
-                {/* Header (移除 Activity 图标，改用 Emoji ⚡️，移除所有 className) */}
+                {/* Header (纯 SVG 图标) */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', position: 'relative', zIndex: 10 }}>
                     <div style={{ fontSize: '20px', fontWeight: '900', color: textWhite, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ color: '#3b82f6', fontSize: '20px' }}>⚡️</span> 
+                        {/* 简单的 SVG 闪电，不依赖 lucide */}
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+                        </svg>
                         WalletAudit
                     </div>
                     <div style={{ fontSize: '12px', color: textMuted }}>
@@ -275,15 +255,13 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
                 {/* Score Section */}
                 <div style={{ textAlign: 'center', padding: '20px 0', borderBottom: '1px solid #333', position: 'relative', zIndex: 10 }}>
                     <div style={{ fontSize: '12px', color: textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>{D.riskScore}</div>
-                    <div style={{ 
-                        fontSize: '64px', fontWeight: 'bold', color: accentColor, lineHeight: '1',
-                    }}>
+                    <div style={{ fontSize: '72px', fontWeight: 'bold', color: accentColor, lineHeight: '1' }}>
                         {score}
                     </div>
                     <div style={{ 
                         marginTop: '16px', 
                         display: 'inline-block', 
-                        padding: '4px 12px', 
+                        padding: '6px 16px', 
                         borderRadius: '99px', 
                         backgroundColor: '#1e293b', 
                         color: '#e2e8f0', 
@@ -295,16 +273,16 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
                 </div>
 
                 {/* Metrics */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', position: 'relative', zIndex: 10 }}>
-                    <div style={{ backgroundColor: '#171717', padding: '12px', borderRadius: '8px', border: '1px solid #262626' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', position: 'relative', zIndex: 10 }}>
+                    <div style={{ backgroundColor: bgCard, padding: '16px', borderRadius: '12px', border: `1px solid ${borderCard}` }}>
                         <div style={{ fontSize: '10px', color: textMuted, textTransform: 'uppercase' }}>{D.netWorth}</div>
-                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: textWhite, marginTop: '4px' }}>
+                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: textWhite, marginTop: '4px' }}>
                             {formatMoney(report.assets.totalValue, lang)}
                         </div>
                     </div>
-                    <div style={{ backgroundColor: '#171717', padding: '12px', borderRadius: '8px', border: '1px solid #262626' }}>
+                    <div style={{ backgroundColor: bgCard, padding: '16px', borderRadius: '12px', border: `1px solid ${borderCard}` }}>
                         <div style={{ fontSize: '10px', color: textMuted, textTransform: 'uppercase' }}>{D.riskCount}</div>
-                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: report.approvals && report.approvals.riskCount > 0 ? '#f87171' : accentColor, marginTop: '4px' }}>
+                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: report.approvals && report.approvals.riskCount > 0 ? '#f87171' : accentColor, marginTop: '4px' }}>
                             {report.approvals ? report.approvals.riskCount : 0}
                         </div>
                     </div>
@@ -317,7 +295,7 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
                         <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#60a5fa' }}>walletaudit.me</span>
                     </div>
                     {/* 简单的纯 CSS 二维码样式 */}
-                    <div style={{ width: '40px', height: '40px', backgroundColor: 'white', borderRadius: '4px', padding: '2px' }}>
+                    <div style={{ width: '48px', height: '48px', backgroundColor: 'white', borderRadius: '4px', padding: '4px' }}>
                         <div style={{ width: '100%', height: '100%', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <span style={{ fontSize: '8px', color: 'white', fontWeight: 'bold' }}>QR</span>
                         </div>
@@ -579,7 +557,6 @@ export default function HomePage() {
       if (!shareRef.current) return;
       setGeneratingImg(true);
       try {
-          // ✅ 配置项优化：允许跨域，禁用日志
           const canvas = await html2canvas(shareRef.current as HTMLElement, {
               backgroundColor: "#050505",
               scale: 2, 
@@ -629,7 +606,7 @@ export default function HomePage() {
                 <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">
                     {lang === 'cn' ? '洞察巨鲸，追踪聪明钱' : 'Track Whales & Smart Money'}
                 </h1>
-                <p className="text-slate-500 text-sm px-4">
+                <p className="text-slate-500 text-sm">
                     {lang === 'cn' ? '一站式链上战绩分析、交易流追踪与风险审计终端' : 'All-in-one terminal for On-chain PnL analysis, Transaction feeds and Risk audit.'}
                 </p>
             </div>
@@ -692,16 +669,16 @@ export default function HomePage() {
                       </div>
                   </div>
 
-                  <div className="flex-1 space-y-4">
+                  <div className="flex-1 space-y-4 min-w-0">
                       <div>
                           <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
-                             <h1 className="text-lg md:text-2xl font-bold text-white font-mono break-all tracking-tight leading-tight">{report.address}</h1>
+                             <h1 className="text-lg md:text-2xl font-bold text-white font-mono truncate w-full tracking-tight leading-tight">{report.address}</h1>
                              
                              {/* Share Button (Responsive) */}
                              <button 
                                 onClick={handleShare}
                                 disabled={generatingImg}
-                                className="self-start md:self-auto flex items-center gap-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition"
+                                className="self-start md:self-auto flex items-center gap-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition shrink-0"
                              >
                                  {generatingImg ? <Clock size={12} className="animate-spin"/> : <Share2 size={14} />}
                                  {generatingImg ? D.downloading : D.shareBtn}
