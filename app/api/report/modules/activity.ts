@@ -5,26 +5,22 @@ import type { ActivityModule } from "./types";
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
 
 async function getRealTransactions(address: string) {
-  // 1. 检查 Key 是否存在
   if (!ETHERSCAN_API_KEY) {
-    console.error("❌ Etherscan API Key is MISSING in environment variables!");
+    console.error("❌ Etherscan API Key is MISSING");
     return [];
   }
   
-  // 2. 构造 URL
-  const url = `https://api.etherscan.io/api?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc&apikey=${ETHERSCAN_API_KEY}`;
+  // ✅ 核心修复：升级到 Etherscan V2 API
+  // 1. 路径改为 /v2/api
+  // 2. 增加了 chainid=1 (代表以太坊主网)
+  const url = `https://api.etherscan.io/v2/api?chainid=1&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc&apikey=${ETHERSCAN_API_KEY}`;
   
   try {
-    // 3. 发起请求
     const res = await fetchJsonWithTimeout(url);
 
-    // 🔍 暴力调试：打印 Etherscan 返回的原始数据
-    // 请在 Vercel Logs 里搜 "Etherscan Debug"
-    console.log("🔍 Etherscan Debug for:", address);
-    console.log("Status:", res?.status);
-    console.log("Message:", res?.message);
-    if (res?.status !== "1") {
-        console.error("❌ Etherscan Error Result:", res?.result);
+    // 依然保留调试日志，以防万一
+    if (res?.status !== "1" && res?.message !== "No transactions found") {
+        console.log("🔍 Etherscan V2 Debug:", res);
     }
 
     if (res.status === "1" && Array.isArray(res.result)) {
