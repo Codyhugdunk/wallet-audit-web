@@ -208,6 +208,10 @@ function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address:
              const isIn = tx.to?.toLowerCase() === address.toLowerCase();
              const isError = tx.isError === "1";
              const method = tx.functionName ? tx.functionName.split('(')[0] : (isIn ? 'Receive' : 'Send');
+             
+             // 0值判断逻辑
+             const ethVal = Number(tx.value) / 1e18;
+             const isZero = ethVal < 0.000001;
 
              return (
              <div key={idx} className="flex items-center gap-3 p-3 border-b border-slate-800/50 hover:bg-slate-900/40 transition group">
@@ -216,7 +220,9 @@ function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address:
                     isIn ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-500' : 
                     'bg-slate-800 border-slate-700 text-slate-400'
                 }`}>
-                    {isError ? <AlertCircle size={14} /> : isIn ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}
+                    {isError ? <AlertCircle size={14} /> : 
+                     (method === 'execute' || method === 'executeBatch') ? <Zap size={14} className="text-yellow-500"/> :
+                     isIn ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}
                 </div>
                 
                 <div className="flex-1 min-w-0">
@@ -233,9 +239,9 @@ function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address:
                    </div>
                 </div>
 
-                <div className="text-right min-w-[60px]">
-                   <div className="text-xs font-medium text-slate-300 font-mono">
-                      {formatEth(tx.value)} ETH
+                <div className="text-right min-w-[70px]">
+                   <div className={`text-xs font-mono ${isZero ? 'text-slate-600' : 'text-slate-200 font-medium'}`}>
+                      {isZero ? 'Interaction' : `${formatEth(tx.value)} ETH`}
                    </div>
                 </div>
                 
@@ -249,7 +255,6 @@ function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address:
     </div>
   );
 }
-
 function AssetTable({ assets, lang }: { assets: Report['assets'], lang: 'cn'|'en' }) {
     const D = DICT[lang];
     const allAssets = useMemo(() => {
