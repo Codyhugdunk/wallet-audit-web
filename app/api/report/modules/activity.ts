@@ -1,118 +1,69 @@
 // app/api/report/modules/activity.ts
-// Level 1 行为画像（最近 500 笔，轻量版）
-
 import { fetchJsonWithTimeout } from "../utils/fetch";
-import { ActivityModule } from "./types";
-import { getDisplayName } from "./labels";
+// 如果你有 cached 方法请保留引用，没有则忽略
+// import { cached } from "../utils/cache";
+import type { ActivityModule } from "./types";
 
-const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL!;
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
 
-interface RawTransfer {
-  hash?: string;
-  from?: string;
-  to?: string;
-  metadata?: {
-    blockTimestamp?: string;
-  };
-}
-
-function toTimestamp(blockTimestamp?: string): number | null {
-  if (!blockTimestamp) return null;
-  const t = Date.parse(blockTimestamp);
-  return Number.isFinite(t) ? t : null;
-}
-
-function getWeekStart(ts: number): number {
-  const d = new Date(ts);
-  const day = d.getUTCDay(); // 0 = Sunday
-  const diff = (day + 6) % 7; // Monday as 0
-  d.setUTCDate(d.getUTCDate() - diff);
-  d.setUTCHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-async function fetchRecentTransfers(address: string): Promise<RawTransfer[]> {
+async function getRealTransactions(address: string) {
+  if (!ETHERSCAN_API_KEY) return [];
+  
+  // 获取最近 20 笔交易
+  const url = `https://api.etherscan.io/api?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc&apikey=${ETHERSCAN_API_KEY}`;
+  
   try {
-    const res = await fetchJsonWithTimeout(ALCHEMY_RPC, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "alchemy_getAssetTransfers",
-        params: [
-          {
-            fromAddress: address,
-            maxCount: "0x1f4",
-            category: ["external", "erc20", "internal", "erc721", "erc1155"],
-            withMetadata: true,
-          },
-        ],
-      }),
-    });
-
-    return (res?.result?.transfers ?? []) as RawTransfer[];
-  } catch {
+    const res = await fetchJsonWithTimeout(url);
+    if (res.status === "1" && Array.isArray(res.result)) {
+      return res.result;
+    }
+    return [];
+  } catch (e) {
+    console.error("Failed to fetch txs", e);
     return [];
   }
 }
 
 export async function buildActivityModule(address: string): Promise<ActivityModule> {
-  const transfers = await fetchRecentTransfers(address);
+  const rawTxs = await getRealTransactions(address);
 
-  if (!transfers.length) {
-    return {
-      txCount: 0,
-      activeDays: 0,
-      contractsInteracted: 0,
-      topContracts: [],
-      weeklyHistogram: [],
-    };
-  }
+  // ✅ 核心修复：数据清洗
+  // Etherscan 返回的 timeStamp 是字符串秒数，前端需要数字毫秒或秒，这里保持一致性
+  const recentTxs = rawTxs.map((tx: any) => ({
+    hash: tx.hash,
+    timestamp: Number(tx.timeStamp), // 转成数字
+    from: tx.from,
+    to: tx.to,
+    value: tx.value,
+    isError: tx.isError,
+    gasUsed: tx.gasUsed,
+    functionName: tx.functionName || "",
+  }));
 
-  const addrLower = address.toLowerCase();
-  const daySet = new Set<string>();
-  const contractMap = new Map<string, number>(); // counterparty -> count
-  const weekMap = new Map<number, number>(); // weekStart -> count
+  // 简单的统计逻辑
+  const txCount = rawTxs.length >= 20 ? "20+" : rawTxs.length;
+  
+  const days = new Set(rawTxs.map((tx: any) => new Date(Number(tx.timeStamp)*1000).toDateString()));
 
-  for (const t of transfers) {
-    const ts = toTimestamp(t.metadata?.blockTimestamp);
-    if (ts) {
-      const d = new Date(ts);
-      const dayKey = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
-      daySet.add(dayKey);
-
-      const ws = getWeekStart(ts);
-      weekMap.set(ws, (weekMap.get(ws) || 0) + 1);
+  const contractCounts: Record<string, number> = {};
+  rawTxs.forEach((tx: any) => {
+    if (tx.to && tx.to !== "") {
+      const to = tx.to.toLowerCase();
+      contractCounts[to] = (contractCounts[to] || 0) + 1;
     }
+  });
 
-    const to = t.to?.toLowerCase();
-    if (to && to !== addrLower) {
-      contractMap.set(to, (contractMap.get(to) || 0) + 1);
-    }
-  }
-
-  const txCount = transfers.length;
-  const activeDays = daySet.size;
-  const contractsInteracted = contractMap.size;
-
-  const topAddresses = Array.from(contractMap.entries())
+  const topContracts = Object.entries(contractCounts)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
+    .slice(0, 5)
     .map(([addr]) => addr);
 
-  // ✅ 显示名：本地字典优先 -> Redis(可选) -> Etherscan -> 兜底短地址
-  const topContracts = await Promise.all(topAddresses.map((a) => getDisplayName(a)));
-
-  const weeklyHistogram = Array.from(weekMap.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([weekStart, count]) => ({ weekStart, count }));
-
   return {
-    txCount,
-    activeDays,
-    contractsInteracted,
+    txCount: txCount,
+    activeDays: days.size,
+    contractsInteracted: Object.keys(contractCounts).length,
     topContracts,
-    weeklyHistogram,
+    weeklyHistogram: [], 
+    recentTxs: recentTxs, // ✅ 现在类型匹配了
   };
 }

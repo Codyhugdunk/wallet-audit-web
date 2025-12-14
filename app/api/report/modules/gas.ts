@@ -3,7 +3,7 @@ import { fetchJsonWithTimeout } from "../utils/fetch";
 import { formatUnits, hexToBigInt, safeFloat } from "../utils/hex";
 import { GasModule } from "./types";
 import { getEthPrice } from "./prices";
-import { getDisplayName } from "./labels"; // ✅ 现在这个文件存在了
+import { getDisplayName } from "./labels";
 
 const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL!;
 const MAX_TX_FOR_GAS = 50;
@@ -25,7 +25,7 @@ async function fetchRecentTxHashes(address: string): Promise<string[]> {
           {
             fromAddress: address,
             maxCount: "0x32", // Hex 50
-            category: ["external", "erc20"], // 只看主动交易
+            category: ["external", "erc20"],
             withMetadata: false,
           },
         ],
@@ -58,18 +58,17 @@ async function fetchReceipt(hash: string): Promise<any | null> {
   }
 }
 
-// 并发控制函数
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
   fn: (item: T) => Promise<R>
 ): Promise<R[]> {
-  const results: R[] = [];
+  const results: Promise<R>[] = [];
   const executing: Promise<void>[] = [];
   
   for (const item of items) {
-    const p = Promise.resolve().then(() => fn(item));
-    results.push(p as any);
+    const p = fn(item);
+    results.push(p);
     
     const e: Promise<void> = p.then(() => {
         executing.splice(executing.indexOf(e), 1);
@@ -86,9 +85,9 @@ async function mapWithConcurrency<T, R>(
 export async function buildGasModule(address: string): Promise<GasModule> {
   const hashes = await fetchRecentTxHashes(address);
   
-  // 默认空返回
+  // ✅ 修复 1：这里补上了 txCount
   if (!hashes.length) {
-    return { totalGasEth: 0, totalGasUsd: 0, topTxs: [] };
+    return { txCount: 0, totalGasEth: 0, totalGasUsd: 0, topTxs: [] };
   }
 
   const [ethPrice, receipts] = await Promise.all([
@@ -113,7 +112,7 @@ export async function buildGasModule(address: string): Promise<GasModule> {
       const to = (receipt.to as string | undefined) || "";
       const toDisplay = to ? await getDisplayName(to) : "";
 
-      return { hash, gasEth, to, toDisplay };
+      return { hash, gasEth, toDisplay };
     })
   );
 
@@ -124,16 +123,12 @@ export async function buildGasModule(address: string): Promise<GasModule> {
 
   const topTxs = validEntries
     .sort((a, b) => b.gasEth - a.gasEth)
-    .slice(0, 3)
-    .map(tx => ({
-      hash: tx.hash,
-      gasEth: tx.gasEth,
-      toDisplay: tx.toDisplay // 确保字段名匹配
-    }));
+    .slice(0, 3);
 
   return {
+    txCount: hashes.length, // ✅ 修复 2：这里也补上了 txCount
     totalGasEth,
     totalGasUsd,
-    topTxs, // ✅ 这里的结构现在符合 types.ts 定义了
+    topTxs, 
   };
 }

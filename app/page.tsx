@@ -1,1376 +1,607 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
 } from "recharts";
+import { 
+  Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
+  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers
+} from "lucide-react";
 
-type AllocationItem = {
-  category: string;
-  value: number;
-  ratio: number;
+// ==========================================
+// 1. 类型定义
+// ==========================================
+type AllocationItem = { category: string; value: number; ratio: number };
+type TokenBalance = { contractAddress: string; symbol: string; amount: number; value: number; decimals: number; hasPrice: boolean };
+
+type RecentTx = {
+  hash: string;
+  timestamp: number;
+  from: string;
+  to: string;
+  value: string;
+  isError: string;
+  gasUsed: string;
+  functionName?: string;
+  symbol?: string;
+  decimal?: string;
 };
 
-type TokenBalance = {
-  contractAddress: string;
-  symbol: string;
-  amount: number;
-  value: number;
-  decimals: number;
-  hasPrice: boolean;
+// PnL 结构定义 (预留，等待后端实现)
+type PnLAnalysis = {
+  totalProfitUsd: number;
+  totalRoi: number;
+  winRate: number;
+  realizedProfit: number;
+  unrealizedProfit: number;
+  bestTrade: { symbol: string; profit: number; roi: number };
 };
 
 type Report = {
   version: string;
   address: string;
-  identity: {
-    address: string;
-    isContract: boolean;
-    createdAt: number | null;
+  identity: { address: string; isContract: boolean; createdAt: number | null };
+  assets: { eth: { amount: number; value: number }; tokens: TokenBalance[]; totalValue: number; allocation: AllocationItem[]; otherTokens: TokenBalance[]; priceWarning: string | null };
+  activity: { 
+    txCount: number | string; 
+    activeDays: number; 
+    contractsInteracted: number; 
+    topContracts: string[]; 
+    weeklyHistogram: any[];
+    recentTxs: RecentTx[]; 
+    pnl?: PnLAnalysis; // 可选字段
   };
-  summary: {
-    text: string;
-  };
-  assets: {
-    eth: {
-      amount: number;
-      value: number;
-    };
-    tokens: TokenBalance[];
-    totalValue: number;
-    allocation: AllocationItem[];
-    otherTokens: TokenBalance[];
-    priceWarning: string | null;
-  };
-  activity: {
-    txCount: number;
-    activeDays: number;
-    contractsInteracted: number;
-    topContracts: string[];
-    weeklyHistogram: any[]; // 后端数据格式不强约束，前端自己兼容
-  };
-  gas: {
-    txCount: number;
-    totalGasEth: number;
-    totalGasUsd: number;
-    topTxs: { hash: string; gasEth: number }[];
-  };
-  risk: {
-    level: string;
-    score: number;
-    comment: string;
-    stableRatio: number;
-    memeRatio: number;
-    otherRatio: number;
-    txCount: number;
-    personaType: string;
-    personaTags: string[];
-  };
-  share: {
-    shortAddr: string;
-    ethAmount: number;
-    ethPrice: number;
-    totalValue: number;
-    valueChange: number | null;
-    valueChangePct: number | null;
-    timestamp: number;
-  };
-  meta: {
-    version: string;
-    generatedAt: number;
-    fromCache: boolean;
-    history: { timestamp: number; totalValue: number }[];
-    previousValue: number | null;
-    valueChange: number | null;
-    valueChangePct: number | null;
-  };
+  gas: { txCount: number; totalGasEth: number; totalGasUsd: number; topTxs: { hash: string; gasEth: number }[] };
+  risk: { level: string; score: number; comment: string; stableRatio: number; memeRatio: number; otherRatio: number; txCount: number | string; personaType: string; personaTags: string[] };
+  meta: { version: string; generatedAt: number; };
 };
 
-type LocalHistoryItem = {
-  address: string;
-  shortAddr: string;
-  ts: number;
-  totalValue: number;
-  persona: string;
-  riskLevel: string;
-};
+type FavoriteItem = { address: string; nickname: string; addedAt: number; tags?: string[] };
 
-type FavoriteItem = {
-  address: string;
-  shortAddr: string;
-  ts: number;
-  totalValue: number;
-  persona: string;
-  riskLevel: string;
-};
-
-type AddressNotes = Record<string, string>;
-
-// ===== Telegram 频道配置 =====
-const TG_CHANNEL_HANDLE = "@walletaudit";
+// ==========================================
+// 2. 翻译字典 & 工具
+// ==========================================
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
 
-// 本地存储 key
-const LOCAL_HISTORY_KEY = "walletaudit:recent-reports:v1";
-const FAVORITES_KEY = "walletaudit:favorites:v1";
-const NOTES_KEY = "walletaudit:notes:v1";
+const PERSONA_MAP: Record<string, string> = {
+  "Golden Dog Hunter": "金狗猎人",
+  "Whale": "巨鲸",
+  "Bot": "机器人",
+  "Airdrop Hunter": "空投猎手",
+  "Degen": "Degen 赌徒",
+  "NFT Collector": "NFT 收藏家",
+  "Inactive": "沉睡账户",
+  "Exchange": "交易所",
+};
 
-// 工具函数
-function trimZero(numStr: string): string {
-  return numStr.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
-}
+const DICT = {
+  cn: {
+    title: "WalletAudit",
+    placeholder: "输入 ETH 地址或 ENS...",
+    analyze: "立即审计",
+    analyzing: "正在分析链上数据...",
+    assetsTitle: "资产分布详情",
+    assetHeader: "资产",
+    priceHeader: "价格/余额",
+    valueHeader: "价值",
+    allocHeader: "占比",
+    proBtn: "PRO 高级版",
+    quickAccess: "我的关注列表",
+    noFavs: "暂无收藏，点击星星 ⭐ 添加关注",
+    riskScore: "综合画像评分",
+    netWorth: "总资产估值",
+    contract: "合约",
+    wallet: "钱包",
+    recentActivity: "最新交易动态 (实时)",
+    txTime: "时间",
+    txValue: "价值",
+    setNickname: "设置备注名",
+    cancel: "取消",
+    confirm: "保存",
+    firstActive: "首次活跃",
+    unknownDate: "未知",
+    txMethod: "调用方法",
+    noTxs: "近期无交易记录",
+    metricTx: "总交易数",
+    metricDays: "活跃天数",
+    metricGas: "Gas 消耗",
+    metricInteract: "交互对象",
+    briefing: "智能摘要"
+  },
+  en: {
+    title: "WalletAudit",
+    placeholder: "Enter ETH Address / ENS...",
+    analyze: "Audit",
+    analyzing: "Analyzing...",
+    assetsTitle: "Asset Allocation",
+    assetHeader: "Asset",
+    priceHeader: "Price/Bal",
+    valueHeader: "Value",
+    allocHeader: "Alloc",
+    proBtn: "PRO Upgrade",
+    quickAccess: "Watchlist",
+    noFavs: "No watchlist yet. Click ⭐ to add.",
+    riskScore: "Wallet Score",
+    netWorth: "Net Worth",
+    contract: "Contract",
+    wallet: "Wallet",
+    recentActivity: "Live Transactions",
+    txTime: "Time",
+    txValue: "Value",
+    setNickname: "Set Nickname",
+    cancel: "Cancel",
+    confirm: "Save",
+    firstActive: "First Active",
+    unknownDate: "Unknown",
+    txMethod: "Method",
+    noTxs: "No recent transactions",
+    metricTx: "Total Txs",
+    metricDays: "Active Days",
+    metricGas: "Gas Spent",
+    metricInteract: "Interactions",
+    briefing: "Smart Briefing"
+  }
+};
 
-function formatUsd(v: number) {
-  if (!Number.isFinite(v) || v <= 0) return "0";
-  if (v < 1_000) return trimZero(v.toFixed(2));
-  if (v < 10_000) return String(Math.round(v));
-  const wan = v / 10_000;
-  if (wan < 10_000) return `${trimZero(wan.toFixed(2))}万`;
-  const yi = wan / 10_000;
-  return `${trimZero(yi.toFixed(2))}亿`;
-}
-
-function formatPct(ratio: number) {
-  if (!Number.isFinite(ratio)) return "-";
-  return (ratio * 100).toFixed(1).replace(/\.0$/, "") + "%";
-}
-
-function formatDate(ts: number | null) {
-  if (!ts) return "未知";
-  const d = new Date(ts);
-  return d.toLocaleString();
-}
-
-// Token 数量显示（兼顾大额和小额）
-function formatTokenAmount(v: number) {
-  if (!Number.isFinite(v) || v === 0) return "0";
-  const abs = Math.abs(v);
-  if (abs >= 1_000_000) return trimZero(v.toFixed(0));
-  if (abs >= 1) return trimZero(v.toFixed(4));
-  return trimZero(v.toFixed(6));
-}
-
-function RiskBadge({ level }: { level: string }) {
-  const color =
-    level === "Low"
-      ? "border-emerald-400/60 text-emerald-300 bg-emerald-500/10"
-      : level === "High"
-      ? "border-rose-400/70 text-rose-300 bg-rose-500/10"
-      : "border-amber-400/70 text-amber-300 bg-amber-500/10";
-
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${color}`}
-    >
-      风险等级：{level}
-    </span>
-  );
-}
-
-function TagBadge({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center rounded-full border border-slate-600/70 bg-slate-900/80 px-2 py-0.5 text-[11px] text-slate-200">
-      {children}
-    </span>
-  );
-}
-
-function shortenAddress(addr: string): string {
-  if (!addr || addr.length <= 10) return addr;
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
-
-function addrKey(addr: string) {
-  return addr.toLowerCase();
-}
-
-function buildShareText(report: Report): string {
-  const shortAddr =
-    report.share?.shortAddr && report.share.shortAddr.length > 0
-      ? report.share.shortAddr
-      : shortenAddress(report.address);
-
-  const totalValue = report.assets?.totalValue ?? 0;
-  const totalText = formatUsd(totalValue);
-
-  const persona = report.risk?.personaType || "钱包持仓地址";
-  const score = report.risk?.score ?? 0;
-  const stableRatio = report.risk?.stableRatio ?? 0;
-  const stablePct = (stableRatio * 100).toFixed(1).replace(/\.0$/, "");
-
-  const txCount = report.activity?.txCount ?? 0;
-  const activeDays = report.activity?.activeDays ?? 0;
-
-  const riskLevel = report.risk?.level ?? "";
-  const riskLabel =
-    riskLevel === "Low"
-      ? "整体风险偏低"
-      : riskLevel === "High"
-      ? "整体风险偏高"
-      : riskLevel === "Medium"
-      ? "整体风险中等"
-      : "";
-
-  const parts: string[] = [];
-  parts.push(
-    `我的以太坊地址 ${shortAddr}，当前总资产约 ${totalText} 美元，属于「${persona}」。`
-  );
-  parts.push(
-    `风险评分 ${score}/100${riskLabel ? `，${riskLabel}` : ""}，稳定币占比约 ${stablePct}%。`
-  );
-  if (txCount > 0) {
-    parts.push(`最近 ${activeDays} 天内共发生 ${txCount} 笔交易。`);
+function formatMoney(value: number, lang: 'cn' | 'en') {
+  if (!Number.isFinite(value)) return "$0";
+  const abs = Math.abs(value);
+  let res = "";
+  if (lang === 'cn') {
+    if (abs >= 100000000) res = `${(abs / 100000000).toFixed(2)}亿`;
+    else if (abs >= 10000) res = `${(abs / 10000).toFixed(2)}万`;
+    else res = new Intl.NumberFormat('en-US').format(parseFloat(abs.toFixed(2)));
   } else {
-    parts.push(`近期几乎没有主动交易行为。`);
+    if (abs >= 1000000000) res = `${(abs / 1000000000).toFixed(2)}B`;
+    else if (abs >= 1000000) res = `${(abs / 1000000).toFixed(2)}M`;
+    else if (abs >= 1000) res = `${(abs / 1000).toFixed(1)}k`;
+    else res = new Intl.NumberFormat('en-US').format(parseFloat(abs.toFixed(2)));
   }
-  parts.push(`这份报告由 WalletAudit 自动生成：https://www.walletaudit.me/`);
-  return parts.join("");
+  return (value < 0 ? "-" : "") + "$" + res;
 }
 
-// 导出持仓 CSV
-function buildHoldingsCsv(report: Report): string {
-  const { eth, tokens, otherTokens } = report.assets;
-  const lines: string[] = [];
-
-  lines.push("Symbol,Contract,Amount,ValueUSD,HasPrice");
-
-  if (eth && (eth.amount !== 0 || eth.value !== 0)) {
-    lines.push(`ETH,,${eth.amount},${eth.value},true`);
-  }
-
-  const pricedTokens = Array.isArray(tokens) ? tokens : [];
-  const longTail = Array.isArray(otherTokens) ? otherTokens : [];
-
-  const allTokens = [...pricedTokens, ...longTail];
-
-  for (const t of allTokens) {
-    lines.push(
-      `${t.symbol || "Token"},${t.contractAddress || ""},${t.amount},${
-        t.value
-      },${t.hasPrice ? "true" : "false"}`
-    );
-  }
-
-  return lines.join("\n");
+function formatTimeAgo(ts: number, lang: 'cn' | 'en') {
+  const seconds = Math.floor((Date.now() - ts) / 1000);
+  if (seconds < 60) return lang === 'cn' ? "刚刚" : "Just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return lang === 'cn' ? `${minutes}分钟前` : `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return lang === 'cn' ? `${hours}小时前` : `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return lang === 'cn' ? `${days}天前` : `${days}d ago`;
 }
 
-const PIE_COLORS = ["#22d3ee", "#a855f7", "#22c55e", "#f97316", "#eab308"];
+function formatEth(wei: string) {
+    if (!wei) return "0";
+    const val = Number(wei) / 1e18;
+    if (val < 0.0001 && val > 0) return "<0.0001";
+    return val.toFixed(4);
+}
 
-// ---------- 资产配置 ----------
-function AllocationCard({ report }: { report: Report }) {
-  const allocation = report.assets?.allocation ?? [];
-  const totalValue = report.assets?.totalValue ?? 0;
+// ==========================================
+// 3. 核心功能组件
+// ==========================================
 
-  const chartData = allocation
-    .filter((item) => item.ratio > 0)
-    .map((item) => ({
-      category: item.category,
-      percent: item.ratio,
-      value: item.value,
-    }));
+// [组件] 真实交易流
+function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address: string, lang: 'cn' | 'en' }) {
+  const D = DICT[lang];
+
+  if (!txs || txs.length === 0) {
+      return (
+        <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl p-8 flex flex-col items-center justify-center text-slate-500 h-full min-h-[400px]">
+            <Activity size={32} className="opacity-20 mb-2" />
+            <span className="text-xs">{D.noTxs}</span>
+        </div>
+      )
+  }
 
   return (
-    <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 shadow-[0_0_40px_rgba(15,23,42,0.9)] p-4">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold tracking-wide">资产配置概览</h2>
-        <span className="text-[11px] text-slate-400">
-          总资产：${formatUsd(totalValue)}
-        </span>
-      </div>
+    <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl overflow-hidden flex flex-col h-full min-h-[400px]">
+       <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
+          <h3 className="font-bold text-slate-200 text-sm flex items-center gap-2">
+             <Activity size={14} className="text-blue-500" /> {D.recentActivity}
+          </h3>
+       </div>
+       <div className="flex-1 overflow-y-auto custom-scrollbar p-0">
+          {txs.map((tx, idx) => {
+             const isIn = tx.to?.toLowerCase() === address.toLowerCase();
+             const isError = tx.isError === "1";
+             const method = tx.functionName ? tx.functionName.split('(')[0] : (isIn ? 'Receive' : 'Send');
 
-      {chartData.length === 0 ? (
-        <p className="text-xs text-slate-400">
-          暂未统计到可用的资产配置数据。
-        </p>
-      ) : (
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="h-44 sm:h-40 sm:flex-1">
-            <div className="relative h-full w-full rounded-2xl bg-gradient-to-br from-slate-900/80 via-slate-950/90 to-black/90 border border-slate-800/90 overflow-hidden">
-              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(148,163,184,0.35),_transparent_60%)]" />
-              <div className="relative h-full w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={chartData}
-                      dataKey="percent"
-                      nameKey="category"
-                      innerRadius={55}
-                      outerRadius={75}
-                      cornerRadius={6}
-                      paddingAngle={2}
-                    >
-                      {chartData.map((entry, index) => (
-                        <Cell
-                          key={entry.category}
-                          fill={PIE_COLORS[index % PIE_COLORS.length]}
-                          stroke="#020617"
-                          strokeWidth={1}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        background:
-                          "radial-gradient(circle at top, #020617, #020617)",
-                        border: "1px solid rgba(51,65,85,0.9)",
-                        borderRadius: 12,
-                        padding: 10,
-                        fontSize: 11,
-                      }}
-                      cursor={{ fill: "rgba(148,163,184,0.15)" }}
-                      formatter={(value: any, _name: any, item: any) => [
-                        `${formatUsd(item.payload.value)} · ${formatPct(
-                          Number(value)
-                        )}`,
-                        item.payload.category,
-                      ]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-[11px] text-slate-300">
-                  <span className="text-[10px] text-slate-500 mb-0.5">
-                    总资产估值
-                  </span>
-                  <span className="text-sm font-semibold">
-                    ${formatUsd(totalValue)}
-                  </span>
+             return (
+             <div key={idx} className="flex items-center gap-3 p-3 border-b border-slate-800/50 hover:bg-slate-900/40 transition group">
+                <div className={`p-1.5 rounded-full border transition ${
+                    isError ? 'bg-red-900/20 border-red-500/30 text-red-500' :
+                    isIn ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-500' : 
+                    'bg-slate-800 border-slate-700 text-slate-400'
+                }`}>
+                    {isError ? <AlertCircle size={14} /> : isIn ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}
                 </div>
+                
+                <div className="flex-1 min-w-0">
+                   <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-[11px] font-bold text-slate-300 font-mono truncate max-w-[120px]" title={method}>
+                         {method}
+                      </span>
+                      <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                         <Clock size={10} /> {formatTimeAgo(tx.timestamp * 1000, lang)}
+                      </span>
+                   </div>
+                   <div className="text-[10px] text-slate-500 font-mono truncate">
+                      {isIn ? `From: ${tx.from.slice(0,6)}...` : `To: ${tx.to?.slice(0,6)}...`}
+                   </div>
+                </div>
+
+                <div className="text-right min-w-[60px]">
+                   <div className="text-xs font-medium text-slate-300 font-mono">
+                      {formatEth(tx.value)} ETH
+                   </div>
+                </div>
+                
+                <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" className="text-slate-600 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition">
+                    <ExternalLink size={12} />
+                </a>
+             </div>
+             )
+          })}
+       </div>
+    </div>
+  );
+}
+
+function AssetTable({ assets, lang }: { assets: Report['assets'], lang: 'cn'|'en' }) {
+    const D = DICT[lang];
+    const allAssets = useMemo(() => {
+      const list = [
+        { symbol: "ETH", address: "", amount: assets.eth.amount, value: assets.eth.value, ratio: assets.totalValue > 0 ? assets.eth.value / assets.totalValue : 0 },
+        ...assets.tokens.map(t => ({ symbol: t.symbol, address: t.contractAddress, amount: t.amount, value: t.value, ratio: assets.totalValue > 0 ? t.value / assets.totalValue : 0 }))
+      ];
+      // 过滤掉 <$1 的垃圾资产，让界面更清爽 (用户反馈：资产列表太乱)
+      return list.filter(a => a.value > 1).sort((a, b) => b.value - a.value);
+    }, [assets]);
+  
+    return (
+      <div className="w-full space-y-2">
+        <div className="grid grid-cols-12 text-[10px] text-slate-500 uppercase tracking-wider px-2 font-medium">
+          <div className="col-span-4">{D.assetHeader}</div>
+          <div className="col-span-3 text-right">{D.priceHeader}</div>
+          <div className="col-span-3 text-right">{D.valueHeader}</div>
+          <div className="col-span-2 text-right">{D.allocHeader}</div>
+        </div>
+        <div className="space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
+          {allAssets.map((item, idx) => (
+            <div key={idx} className="grid grid-cols-12 items-center p-2 rounded-lg bg-slate-900/30 border border-slate-800/50 hover:bg-slate-800/60 transition">
+              <div className="col-span-4 flex items-center gap-2">
+                 <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-300 border border-slate-700 shrink-0">
+                    {item.symbol ? item.symbol[0] : '?'}
+                 </div>
+                 <div className="min-w-0">
+                    <div className="font-bold text-slate-200 text-sm truncate">{item.symbol}</div>
+                 </div>
+              </div>
+              <div className="col-span-3 text-right">
+                 <div className="text-[11px] text-slate-400 font-mono">{item.amount < 0.001 ? '<0.001' : (item.amount > 10000 ? (item.amount/1000).toFixed(1)+'k' : item.amount.toFixed(3))}</div>
+              </div>
+              <div className="col-span-3 text-right">
+                 <div className="text-sm font-medium text-slate-200 font-mono">{formatMoney(item.value, lang)}</div>
+              </div>
+              <div className="col-span-2 flex items-center justify-end gap-2">
+                 <div className="text-[11px] text-slate-400 font-mono w-8 text-right">{(item.ratio * 100).toFixed(0)}%</div>
+                 <div className="w-1.5 h-6 bg-slate-800 rounded-full overflow-hidden relative">
+                    <div className="absolute bottom-0 left-0 w-full bg-blue-500" style={{ height: `${item.ratio * 100}%` }}></div>
+                 </div>
               </div>
             </div>
-          </div>
-
-          <div className="sm:flex-1">
-            <ul className="space-y-1.5 text-xs">
-              {allocation.map((item) => (
-                <li
-                  key={item.category}
-                  className="flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-2 text-slate-200">
-                    <span
-                      className="inline-block h-2.5 w-2.5 rounded-full"
-                      style={{
-                        backgroundColor:
-                          PIE_COLORS[
-                            allocation.findIndex(
-                              (x) => x.category === item.category
-                            ) % PIE_COLORS.length
-                          ],
-                      }}
-                    />
-                    {item.category}
-                  </span>
-                  <span className="text-slate-400">
-                    ${formatUsd(item.value)} · {formatPct(item.ratio)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
-      {report.assets.priceWarning && (
-        <p className="mt-2 text-[11px] text-amber-300/80">
-          {report.assets.priceWarning}
-        </p>
-      )}
-    </div>
-  );
-}
-
-// ---------- 主要持仓明细（含 Pro 试验版扩展 + CSV 导出） ----------
-function HoldingsCard({ report }: { report: Report }) {
-  const { eth, tokens, otherTokens, totalValue } = report.assets;
-  const [showAll, setShowAll] = useState(false);
-
-  const pricedTokens = Array.isArray(tokens) ? tokens : [];
-  const longTail = Array.isArray(otherTokens) ? otherTokens : [];
-
-  const rows: {
-    key: string;
-    symbol: string;
-    amount: number;
-    value: number;
-  }[] = [];
-
-  if (eth && (eth.amount !== 0 || eth.value !== 0)) {
-    rows.push({
-      key: "ETH",
-      symbol: "ETH",
-      amount: eth.amount,
-      value: eth.value,
-    });
-  }
-
-  const primaryList = showAll ? pricedTokens : pricedTokens.slice(0, 5);
-
-  primaryList.forEach((t) => {
-    rows.push({
-      key: t.contractAddress || t.symbol,
-      symbol: t.symbol || "Token",
-      amount: t.amount,
-      value: t.value,
-    });
-  });
-
-  if (showAll && longTail.length > 0) {
-    longTail.forEach((t) => {
-      rows.push({
-        key: t.contractAddress || t.symbol,
-        symbol: t.symbol || "Token",
-        amount: t.amount,
-        value: t.value,
-      });
-    });
-  }
-
-  const hasMore =
-    longTail.length > 0 || pricedTokens.length > primaryList.length;
-
-  if (rows.length === 0 && !hasMore) {
-    return (
-      <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4 text-xs text-slate-400">
-        <h2 className="text-sm font-semibold mb-2">主要持仓明细</h2>
-        <p>暂未统计到可用的持仓数据。</p>
-      </div>
-    );
-  }
-
-  const handleExportCsv = () => {
-    try {
-      const csv = buildHoldingsCsv(report);
-      const blob = new Blob([csv], {
-        type: "text/csv;charset=utf-8;",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      const shortAddr =
-        report.share?.shortAddr && report.share.shortAddr.length > 0
-          ? report.share.shortAddr
-          : shortenAddress(report.address);
-      a.href = url;
-      a.download = `${shortAddr}-holdings.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("导出持仓 CSV 失败：", err);
-    }
-  };
-
-  return (
-    <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4">
-      <div className="flex items-center justify-between mb-2 gap-2">
-        <h2 className="text-sm font-semibold">主要持仓明细</h2>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-slate-400">
-            当前总资产：${formatUsd(totalValue)}
-          </span>
-          <button
-            type="button"
-            onClick={() => setShowAll((v) => !v)}
-            className="rounded-full border border-slate-600/70 bg-slate-900/80 px-2 py-0.5 text-[10px] text-slate-200 hover:border-cyan-400/80 hover:text-cyan-100 transition-colors"
-          >
-            {showAll ? "只看主要持仓" : "展开全部资产"}
-          </button>
-          <button
-            type="button"
-            onClick={handleExportCsv}
-            className="rounded-full border border-cyan-500/70 bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-200 hover:bg-cyan-500/20 transition-colors"
-          >
-            导出 CSV（试验版）
-          </button>
-        </div>
-      </div>
-      <div className="rounded-xl border border-slate-800/80 bg-black/50 overflow-hidden">
-        <table className="min-w-full text-[11px]">
-          <thead className="bg-slate-900/80">
-            <tr className="text-slate-400">
-              <th className="px-3 py-2 text-left font-normal">资产</th>
-              <th className="px-3 py-2 text-right font-normal">数量</th>
-              <th className="px-3 py-2 text-right font-normal">估值 (USD)</th>
-              <th className="px-3 py-2 text-right font-normal">占比</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, idx) => {
-              const ratio =
-                totalValue > 0 ? row.value / totalValue : 0;
-              return (
-                <tr
-                  key={row.key}
-                  className="border-t border-slate-800/80 text-slate-200"
-                >
-                  <td className="px-3 py-1.5 align-middle">
-                    <span className="font-medium">{row.symbol}</span>
-                  </td>
-                  <td className="px-3 py-1.5 text-right align-middle font-mono">
-                    {formatTokenAmount(row.amount)}
-                  </td>
-                  <td className="px-3 py-1.5 text-right align-middle">
-                    ${formatUsd(row.value)}
-                  </td>
-                  <td className="px-3 py-1.5 text-right align-middle">
-                    {formatPct(ratio)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {hasMore && !showAll && (
-        <p className="mt-2 text-[11px] text-slate-400">
-          还有部分长尾资产未在基础版中完整展示，点击“展开全部资产”可先查看试验版完整列表。
-        </p>
-      )}
-      {showAll && (
-        <p className="mt-2 text-[11px] text-slate-400">
-          当前展示为「完整持仓试验版」，导出 CSV
-          后可在表格软件中继续筛选和整理。
-        </p>
-      )}
-    </div>
-  );
-}
-
-// ---------- 行为画像 ----------
-function ActivityCard({ report }: { report: Report }) {
-  const a = report.activity;
-
-  // 兼容不同版本的 weeklyHistogram 数据结构
-  const raw = Array.isArray(a.weeklyHistogram) ? a.weeklyHistogram : [];
-
-  const hist = raw
-    .map((item: any) => {
-      const count =
-        typeof item.count === "number"
-          ? item.count
-          : typeof item.value === "number"
-          ? item.value
-          : 0;
-
-      const labelField =
-        item.label ??
-        item.weekLabel ??
-        item.week ??
-        null;
-
-      let label: string | null = labelField;
-
-      if (!label) {
-        const ts =
-          typeof item.weekStart === "number"
-            ? item.weekStart
-            : typeof item.timestamp === "number"
-            ? item.timestamp
-            : null;
-
-        if (ts !== null) {
-          const d = new Date(ts);
-          if (!isNaN(d.getTime())) {
-            label = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
-          }
-        }
-      }
-
-      if (!label) {
-        return null;
-      }
-
-      return {
-        label,
-        count: Number.isFinite(count) ? count : 0,
-      };
-    })
-    .filter((x): x is { label: string; count: number } => !!x);
-
-  const hasData = hist.length > 0 && hist.some((h) => h.count > 0);
-
-  return (
-    <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4">
-      <h2 className="text-sm font-semibold mb-2">行为画像（近期）</h2>
-      {a.txCount === 0 ? (
-        <p className="text-xs text-slate-400">近期几乎没有主动交易行为。</p>
-      ) : (
-        <>
-          <div className="grid grid-cols-3 gap-2 text-xs text-slate-300 mb-3">
-            <div>
-              <p className="text-slate-400">交易笔数</p>
-              <p className="font-semibold">{a.txCount}</p>
-            </div>
-            <div>
-              <p className="text-slate-400">活跃天数</p>
-              <p className="font-semibold">{a.activeDays}</p>
-            </div>
-            <div>
-              <p className="text-slate-400">交互对象</p>
-              <p className="font-semibold">{a.contractsInteracted}</p>
-            </div>
-          </div>
-
-          <div className="h-40 mb-3 rounded-xl border border-slate-800/80 bg-slate-950/90">
-            {!hasData ? (
-              <p className="text-xs text-slate-500 p-3">
-                近期交易分布数据不足，无法绘制图表。
-              </p>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={hist}>
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fontSize: 10, fill: "#9ca3af" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis hide />
-                  <Tooltip
-                    contentStyle={{
-                      background:
-                        "radial-gradient(circle at top, #020617, #020617)",
-                      border: "1px solid rgba(51,65,85,0.9)",
-                      borderRadius: 12,
-                      padding: 10,
-                      fontSize: 11,
-                    }}
-                    cursor={{ fill: "rgba(56,189,248,0.13)" }}
-                    formatter={(value: any) => [
-                      `${value} 笔交易`,
-                      "周内交易",
-                    ]}
-                  />
-                  <Bar
-                    dataKey="count"
-                    radius={[6, 6, 0, 0]}
-                    barSize={18}
-                    fill="#38bdf8"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          <div className="text-xs text-slate-300">
-            <p className="text-slate-400 mb-1">Top 合约地址</p>
-            {a.topContracts.length === 0 ? (
-              <p className="text-xs text-slate-500">
-                暂无明显高频交互合约。
-              </p>
-            ) : (
-              <ul className="space-y-1">
-                {a.topContracts.map((c) => (
-                  <li
-                    key={c}
-                    className="text-[11px] font-mono text-slate-300 break-all"
-                  >
-                    {c}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ---------- Gas ----------
-function GasCard({ report }: { report: Report }) {
-  const g = report.gas;
-  return (
-    <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4">
-      <h2 className="text-sm font-semibold mb-2">
-        Gas 消耗概览（最近 50 笔）
-      </h2>
-      {g.txCount === 0 ? (
-        <p className="text-xs text-slate-400">暂无可统计的 Gas 数据。</p>
-      ) : (
-        <>
-          <div className="grid grid-cols-3 gap-2 text-xs text-slate-300 mb-2">
-            <div>
-              <p className="text-slate-400">统计交易数</p>
-              <p className="font-semibold">{g.txCount}</p>
-            </div>
-            <div>
-              <p className="text-slate-400">总 Gas 消耗</p>
-              <p className="font-semibold">{g.totalGasEth.toFixed(4)} ETH</p>
-            </div>
-            <div>
-              <p className="text-slate-400">折合金额</p>
-              <p className="font-semibold">${formatUsd(g.totalGasUsd)}</p>
-            </div>
-          </div>
-          <div>
-            <p className="text-slate-400 text-xs mb-1">
-              Gas 消耗最高的交易（Top 3）
-            </p>
-            {g.topTxs.length === 0 ? (
-              <p className="text-xs text-slate-500">暂无数据。</p>
-            ) : (
-              <ul className="space-y-1">
-                {g.topTxs.map((tx, index) => (
-                  <li
-                    key={`${tx.hash}-${index}`}
-                    className="text-[11px] text-slate-300 flex justify-between gap-2"
-                  >
-                    <span className="font-mono truncate max-w-[220px]">
-                      {tx.hash}
-                    </span>
-                    <span>{tx.gasEth.toFixed(5)} ETH</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ---------- 风险 ----------
-function RiskCard({ report }: { report: Report }) {
-  const r = report.risk;
-  return (
-    <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold">风险评估</h2>
-        <RiskBadge level={r.level} />
-      </div>
-      <p className="text-xs text-slate-300 mb-1">
-        人格类型：<span className="font-semibold">{r.personaType}</span>
-      </p>
-      {r.personaTags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-2">
-          {r.personaTags.map((tag) => (
-            <TagBadge key={tag}>{tag}</TagBadge>
           ))}
         </div>
-      )}
-      <p className="text-xs text-slate-300 mb-2">
-        综合评分：<span className="font-semibold">{r.score}</span>/100
-      </p>
-      <p className="text-xs text-slate-400 mb-3">{r.comment}</p>
-      <div className="grid grid-cols-3 gap-2 text-xs text-slate-300">
-        <div>
-          <p className="text-slate-400">稳定币占比</p>
-          <p className="font-semibold">{formatPct(r.stableRatio)}</p>
-        </div>
-        <div>
-          <p className="text-slate-400">Meme 占比</p>
-          <p className="font-semibold">{formatPct(r.memeRatio)}</p>
-        </div>
-        <div>
-          <p className="text-slate-400">其他资产</p>
-          <p className="font-semibold">{formatPct(r.otherRatio)}</p>
-        </div>
       </div>
-    </div>
-  );
+    )
 }
 
-// ---------- 页面主组件 ----------
+// ==========================================
+// 4. 主页面
+// ==========================================
 export default function HomePage() {
+  const [lang, setLang] = useState<'cn' | 'en'>('cn');
   const [address, setAddress] = useState("");
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [copyHint, setCopyHint] = useState<string | null>(null);
-  const [channelCopyHint, setChannelCopyHint] = useState<string | null>(null);
-  const [history, setHistory] = useState<LocalHistoryItem[]>([]);
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
-  const [notes, setNotes] = useState<AddressNotes>({});
-  const [currentNote, setCurrentNote] = useState("");
-  const reportRef = useRef<HTMLDivElement | null>(null);
+  const [showNickModal, setShowNickModal] = useState(false);
+  const [tempNick, setTempNick] = useState("");
+  const D = DICT[lang];
 
-  const tgChannelUrl =
-    TG_CHANNEL_URL ||
-    (TG_CHANNEL_HANDLE && TG_CHANNEL_HANDLE.startsWith("@")
-      ? `https://t.me/${TG_CHANNEL_HANDLE.slice(1)}`
-      : "");
-
-  // 初始化加载本地历史记录 / 自选 / 备注
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = window.localStorage.getItem(LOCAL_HISTORY_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setHistory(parsed);
-        }
-      }
-    } catch (err) {
-      console.error("加载本地历史记录失败：", err);
-    }
-
-    try {
-      const rawFav = window.localStorage.getItem(FAVORITES_KEY);
-      if (rawFav) {
-        const parsed = JSON.parse(rawFav);
-        if (Array.isArray(parsed)) {
-          setFavorites(parsed);
-        }
-      }
-    } catch (err) {
-      console.error("加载自选地址失败：", err);
-    }
-
-    try {
-      const rawNotes = window.localStorage.getItem(NOTES_KEY);
-      if (rawNotes) {
-        const parsed = JSON.parse(rawNotes);
-        if (parsed && typeof parsed === "object") {
-          setNotes(parsed);
-        }
-      }
-    } catch (err) {
-      console.error("加载地址备注失败：", err);
-    }
+    const saved = localStorage.getItem("walletaudit:favs:v3");
+    if (saved) try { setFavorites(JSON.parse(saved)); } catch (e) {}
   }, []);
 
-  const upsertHistory = (data: Report) => {
-    if (typeof window === "undefined") return;
-    try {
-      const item: LocalHistoryItem = {
-        address: data.address,
-        shortAddr:
-          data.share?.shortAddr && data.share.shortAddr.length > 0
-            ? data.share.shortAddr
-            : shortenAddress(data.address),
-        ts: data.meta?.generatedAt ?? Date.now(),
-        totalValue: data.assets?.totalValue ?? 0,
-        persona: data.risk?.personaType ?? "",
-        riskLevel: data.risk?.level ?? "",
-      };
-
-      const raw = window.localStorage.getItem(LOCAL_HISTORY_KEY);
-      let list: LocalHistoryItem[] = [];
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          list = parsed;
-        }
-      }
-
-      const lower = addrKey(item.address);
-      list = list.filter((x) => addrKey(x.address) !== lower);
-      list.unshift(item);
-      if (list.length > 10) list = list.slice(0, 10);
-
-      window.localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(list));
-      setHistory(list);
-    } catch (err) {
-      console.error("更新本地历史记录失败：", err);
-    }
-  };
-
-  const syncFavorites = (list: FavoriteItem[]) => {
-    setFavorites(list);
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(list));
-    } catch (err) {
-      console.error("更新自选地址失败：", err);
-    }
-  };
-
-  const isFavorite = (addr: string) => {
-    const key = addrKey(addr);
-    return favorites.some((f) => addrKey(f.address) === key);
-  };
-
-  const toggleFavorite = (data: Report) => {
-    const item: FavoriteItem = {
-      address: data.address,
-      shortAddr:
-        data.share?.shortAddr && data.share.shortAddr.length > 0
-          ? data.share.shortAddr
-          : shortenAddress(data.address),
-      ts: data.meta?.generatedAt ?? Date.now(),
-      totalValue: data.assets?.totalValue ?? 0,
-      persona: data.risk?.personaType ?? "",
-      riskLevel: data.risk?.level ?? "",
-    };
-
-    const key = addrKey(item.address);
-    let list = favorites.filter((f) => addrKey(f.address) !== key);
-
-    // 如果之前不在自选里，就加入；如果已经在，就等于删除
-    const already = favorites.some((f) => addrKey(f.address) === key);
-    if (!already) {
-      list.unshift(item);
-      if (list.length > 20) list = list.slice(0, 20);
-    }
-
-    syncFavorites(list);
-  };
-
-  const handleClearHistory = () => {
-    try {
-      if (typeof window !== "undefined") {
-        window.localStorage.removeItem(LOCAL_HISTORY_KEY);
-      }
-      setHistory([]);
-    } catch (err) {
-      console.error("清空本地历史记录失败：", err);
-    }
-  };
-
-  const handleClearFavorites = () => {
-    try {
-      if (typeof window !== "undefined") {
-        window.localStorage.removeItem(FAVORITES_KEY);
-      }
-      setFavorites([]);
-    } catch (err) {
-      console.error("清空自选地址失败：", err);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setReport(null);
-
-    const addr = address.trim();
-    if (!addr.startsWith("0x") || addr.length !== 42) {
-      setError("请输入合法的以太坊地址（0x 开头，42 位长度）");
-      return;
-    }
-
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!address) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/report?address=${encodeURIComponent(addr)}`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || `接口返回错误：${res.status}`);
-      }
-      const data = (await res.json()) as Report;
+      const res = await fetch(`/api/report?address=${address}`);
+      if (!res.ok) throw new Error("API Error");
+      const data = await res.json();
       setReport(data);
-      upsertHistory(data);
-
-      // 切换报告时，同步当前备注
-      const key = addrKey(data.address);
-      const note = notes[key] || "";
-      setCurrentNote(note);
-    } catch (err: any) {
-      console.error(err);
-      setError(err?.message || "获取报告失败，请稍后重试");
+    } catch (err) {
+      alert("Error fetching report");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCopyShare = async () => {
+  const loadFav = (addr: string) => {
+      setAddress(addr);
+      setLoading(true);
+      fetch(`/api/report?address=${addr}`).then(r => r.json()).then(d => {
+          setReport(d);
+          setLoading(false);
+      }).catch(() => setLoading(false));
+  };
+
+  const saveFavorite = () => {
     if (!report) return;
-    const text = buildShareText(report);
+    const newItem: FavoriteItem = {
+        address: report.address,
+        nickname: tempNick || (lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType),
+        addedAt: Date.now()
+    };
+    const next = [newItem, ...favorites.filter(f => f.address.toLowerCase() !== report.address.toLowerCase())];
+    setFavorites(next);
+    localStorage.setItem("walletaudit:favs:v3", JSON.stringify(next));
+    setShowNickModal(false);
+    setTempNick("");
+  };
 
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
+  const removeFavorite = (addr: string) => {
+      const next = favorites.filter(f => f.address.toLowerCase() !== addr.toLowerCase());
+      setFavorites(next);
+      localStorage.setItem("walletaudit:favs:v3", JSON.stringify(next));
+  };
+
+  const isFav = report ? favorites.some(f => f.address.toLowerCase() === report.address.toLowerCase()) : false;
+  
+  const getScoreStyle = (score: number) => {
+      if (score >= 80) return { color: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/10' };
+      if (score >= 50) return { color: 'text-amber-400', border: 'border-amber-500/30', bg: 'bg-amber-500/10' };
+      return { color: 'text-rose-500', border: 'border-rose-500/30', bg: 'bg-rose-500/10' };
+  };
+
+  // 动态生成文案逻辑 (Merge 到主组件)
+  const getSummaryText = () => {
+      if (!report) return "";
+      const { assets, identity, risk, activity } = report;
+      const totalVal = formatMoney(assets.totalValue, lang);
+      const ageDate = identity.createdAt ? new Date(identity.createdAt).getFullYear() : null;
+      const topAsset = assets.tokens.length > 0 ? assets.tokens[0].symbol : "ETH";
+      
+      let text = "";
+      if (lang === 'cn') {
+          text += `此地址目前管理约 ${totalVal} 资产，核心配置为 ${topAsset}。`;
+          if (ageDate) text += ` 账户创建于 ${ageDate} 年，`;
+          text += `属于「${PERSONA_MAP[risk.personaType] || risk.personaType}」。`;
+          if (risk.score < 50) text += ` 系统检测到较高的资产集中度或异常交互行为，请注意风险。`;
+          else text += ` 资产结构相对稳健，未发现明显的高危授权或貔貅资产。`;
       } else {
-        const textarea = document.createElement("textarea");
-        textarea.value = text;
-        textarea.style.position = "fixed";
-        textarea.style.left = "-9999px";
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
+          text += `Managing approx ${totalVal}, mainly allocated in ${topAsset}. `;
+          if (ageDate) text += `Created in ${ageDate}, `;
+          text += `identified as "${risk.personaType}". `;
+          if (risk.score < 50) text += ` High concentration or unusual activity detected. Exercise caution.`;
+          else text += ` The portfolio structure appears stable with no major red flags.`;
       }
-      setCopyHint("分享文案已复制，可直接粘贴到 X / TG / 朋友圈。");
-      setTimeout(() => setCopyHint(null), 2500);
-    } catch (err) {
-      console.error("复制分享文案失败：", err);
-      setCopyHint("复制失败，可以先手动选中文案复制。");
-      setTimeout(() => setCopyHint(null), 2500);
-    }
+      return text;
   };
-
-  const handleCopyChannel = async () => {
-    if (!TG_CHANNEL_HANDLE) return;
-    try {
-      const text = TG_CHANNEL_HANDLE;
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const textarea = document.createElement("textarea");
-        textarea.value = text;
-        textarea.style.position = "fixed";
-        textarea.style.left = "-9999px";
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
-      }
-      setChannelCopyHint("频道名已复制，可在 TG 搜索栏直接粘贴。");
-      setTimeout(() => setChannelCopyHint(null), 2500);
-    } catch (err) {
-      console.error("复制频道名失败：", err);
-      setChannelCopyHint("复制失败，可以手动选中频道名复制。");
-      setTimeout(() => setChannelCopyHint(null), 2500);
-    }
-  };
-
-  const handleSaveNote = () => {
-    if (!report) return;
-    const trimmed = currentNote.trim();
-    const key = addrKey(report.address);
-
-    const next: AddressNotes = { ...notes };
-    if (trimmed) {
-      next[key] = trimmed;
-    } else {
-      delete next[key];
-    }
-
-    setNotes(next);
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem(NOTES_KEY, JSON.stringify(next));
-      } catch (err) {
-        console.error("保存地址备注失败：", err);
-      }
-    }
-  };
-
-  const currentAddrNote =
-    report && notes[addrKey(report.address)] ? notes[addrKey(report.address)] : "";
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-black via-slate-950 to-zinc-950 text-slate-100">
-      <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-wide">
-              WalletAudit · 链上钱包审计报告
-            </h1>
-            <p className="text-[13px] text-slate-400 mt-1">
-              输入任意以太坊地址，生成一份结构化的资产与行为分析报告（当前为基础版，部分
-              Pro 功能以「试验版」形式开放）。
-            </p>
-            {(copyHint || channelCopyHint) && (
-              <p className="mt-1 text-[11px] text-emerald-400">
-                {copyHint || channelCopyHint}
-              </p>
-            )}
+    <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20">
+      
+      {/* 1. Navbar */}
+      <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Activity className="text-blue-500" size={20} />
+            <span className="text-xl font-bold tracking-tighter text-white">WalletAudit</span>
           </div>
-          {report && (
-            <div className="flex flex-col items-end gap-1">
-              <button
-                onClick={handleCopyShare}
-                className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/20 transition-colors"
-              >
-                复制分享文案
-              </button>
-              <span className="text-[11px] text-slate-500">
-                截图保存建议先用系统截图，后续会上线一键分享卡片。
-              </span>
-            </div>
-          )}
-        </header>
-
-        <section className="rounded-2xl border border-slate-800/80 bg-gradient-to-r from-slate-950/95 via-slate-900/90 to-slate-950/95 p-4 space-y-2">
-          <form
-            onSubmit={handleSubmit}
-            className="flex flex-col sm:flex-row gap-3"
-          >
-            <input
-              className="flex-1 rounded-xl bg-black/60 border border-slate-700/80 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-cyan-500/70 focus:border-cyan-500/60 transition"
-              placeholder="输入以太坊钱包地址，例如 0xabc..."
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-            />
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded-xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.5)] disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {loading ? "生成中..." : "生成报告"}
+          <div className="flex items-center gap-3">
+            <button onClick={() => setLang(l => l==='cn'?'en':'cn')} className="text-xs font-mono font-medium text-slate-400 hover:text-white px-2 py-1 rounded hover:bg-slate-800 transition">
+                {lang === 'cn' ? '🇺🇸 EN' : '🇨🇳 中文'}
             </button>
-          </form>
-          {error && <p className="text-xs text-red-400">{error}</p>}
+            <a href={TG_CHANNEL_URL} target="_blank" className="hidden sm:flex items-center gap-1 bg-white hover:bg-slate-200 text-black text-xs px-3 py-1.5 rounded-full font-bold transition">
+               <Star size={12} fill="black" /> {D.proBtn}
+            </a>
+          </div>
+        </div>
+      </nav>
 
-          {history.length > 0 && (
-            <div className="pt-1 border-t border-slate-800/70 mt-2">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-slate-400">
-                  最近体检的钱包（仅保存在本地）
-                </span>
-                <button
-                  type="button"
-                  onClick={handleClearHistory}
-                  className="text-[10px] text-slate-500 hover:text-rose-300"
-                >
-                  清空
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {history.map((h) => {
-                  const note = notes[addrKey(h.address)];
-                  return (
-                    <button
-                      key={h.address}
-                      type="button"
-                      onClick={() => setAddress(h.address)}
-                      className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/80 px-2.5 py-1 text-[11px] text-slate-200 hover:border-cyan-400/80 hover:text-cyan-100 transition-colors"
-                    >
-                      {note && (
-                        <span className="max-w-[80px] truncate">{note}</span>
-                      )}
-                      <span className="font-mono">
-                        {shortenAddress(h.address)}
-                      </span>
-                      {h.totalValue > 0 && (
-                        <span className="text-[10px] text-slate-400">
-                          ${formatUsd(h.totalValue)}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+        
+        {/* 2. 搜索 & 快速访问 */}
+        <section className="max-w-4xl mx-auto space-y-4">
+            <div className="text-center mb-8">
+                <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">
+                    {lang === 'cn' ? '洞察巨鲸，追踪聪明钱' : 'Track Whales & Smart Money'}
+                </h1>
+                <p className="text-slate-500 text-sm">
+                    {lang === 'cn' ? '一站式链上战绩分析、交易流追踪与风险审计终端' : 'All-in-one terminal for On-chain PnL analysis, Transaction feeds and Risk audit.'}
+                </p>
             </div>
-          )}
+            
+            <form onSubmit={handleSubmit} className="relative z-10 group">
+                <div className="absolute inset-0 bg-blue-600/20 rounded-xl blur-xl opacity-0 group-hover:opacity-100 transition duration-700"></div>
+                <div className="relative flex items-center bg-[#0a0a0a] border border-slate-800 rounded-xl p-1.5 shadow-2xl focus-within:border-blue-500/50 transition">
+                    <Search className="ml-3 text-slate-500" size={18} />
+                    <input 
+                      value={address}
+                      onChange={e => setAddress(e.target.value)}
+                      placeholder={D.placeholder}
+                      className="flex-1 bg-transparent border-none outline-none text-sm px-3 text-white placeholder:text-slate-600 font-mono h-10"
+                    />
+                    <button disabled={loading} className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-6 h-10 rounded-lg transition">
+                        {loading ? 'Thinking...' : D.analyze}
+                    </button>
+                </div>
+            </form>
 
-          {favorites.length > 0 && (
-            <div className="pt-2 border-t border-slate-800/70 mt-2">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-slate-400">
-                  我的自选地址（本机收藏，适合长期跟踪）
-                </span>
-                <button
-                  type="button"
-                  onClick={handleClearFavorites}
-                  className="text-[10px] text-slate-500 hover:text-rose-300"
-                >
-                  清空
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {favorites.map((f) => {
-                  const note = notes[addrKey(f.address)];
-                  return (
-                    <button
-                      key={f.address}
-                      type="button"
-                      onClick={() => setAddress(f.address)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/5 px-2.5 py-1 text-[11px] text-slate-100 hover:border-emerald-400/80 hover:bg-emerald-500/10 transition-colors"
-                    >
-                      {note && (
-                        <span className="max-w-[80px] truncate">{note}</span>
-                      )}
-                      <span className="font-mono">{shortenAddress(f.address)}</span>
-                      {f.totalValue > 0 && (
-                        <span className="text-[10px] text-emerald-300">
-                          ${formatUsd(f.totalValue)}
-                        </span>
-                      )}
-                      {f.persona && (
-                        <span className="text-[10px] text-slate-300">
-                          · {f.persona}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+            <div className="pt-2 flex flex-wrap gap-2 justify-center">
+                {favorites.length > 0 && favorites.map(fav => (
+                    <div key={fav.address} onClick={() => loadFav(fav.address)} className="group flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-full px-3 py-1.5 hover:border-blue-500/50 hover:bg-slate-800 transition cursor-pointer select-none">
+                        <span className="text-[11px] text-slate-300 font-medium">{fav.nickname}</span>
+                        <button onClick={(e) => { e.stopPropagation(); removeFavorite(fav.address); }} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition">
+                            <Trash2 size={11} />
+                        </button>
+                    </div>
+                ))}
             </div>
-          )}
         </section>
 
         {report && (
-          <section
-            ref={reportRef}
-            className="space-y-4 rounded-3xl bg-gradient-to-br from-slate-950/90 via-slate-950/95 to-black/95 p-4 border border-slate-900/80"
-          >
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div className="lg:col-span-2 rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4 shadow-[0_0_40px_rgba(15,23,42,0.8)]">
-                <div className="flex items-center justify-between mb-2 gap-2">
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-sm font-semibold">整体概览</h2>
-                      {currentAddrNote && (
-                        <TagBadge>{currentAddrNote}</TagBadge>
-                      )}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            
+            {/* [A] HERO SECTION (合并了摘要与核心指标) */}
+            <div className="lg:col-span-12 bg-[#0a0a0a] border border-slate-800 rounded-2xl p-6 relative overflow-hidden shadow-2xl">
+               <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-blue-600/5 rounded-full blur-[100px] pointer-events-none"></div>
+               
+               <div className="flex flex-col md:flex-row gap-6 relative z-10">
+                  {/* 左侧：评分 */}
+                  {(() => {
+                      const s = getScoreStyle(report.risk.score);
+                      return (
+                        <div className={`flex flex-col items-center justify-center w-24 h-24 md:w-28 md:h-28 rounded-xl border ${s.bg} ${s.border} ${s.color} shrink-0`}>
+                            <span className="text-3xl md:text-4xl font-bold font-mono">{report.risk.score}</span>
+                            <span className="text-[10px] opacity-80 uppercase mt-1 font-bold text-center leading-tight px-1">{D.riskScore}</span>
+                        </div>
+                      )
+                  })()}
+
+                  {/* 中间：信息流 + 摘要 + 指标 */}
+                  <div className="flex-1 space-y-4">
+                      {/* 上：地址与标签 */}
+                      <div>
+                          <div className="flex items-center justify-between mb-2">
+                             <h1 className="text-xl md:text-2xl font-bold text-white font-mono break-all tracking-tight">{report.address}</h1>
+                             <div className="text-right md:hidden">
+                                <div className="text-xs text-slate-500 uppercase">{D.netWorth}</div>
+                                <div className="text-xl font-bold text-white">{formatMoney(report.assets.totalValue, lang)}</div>
+                             </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-800 flex items-center gap-1 text-slate-300">
+                                  {report.identity.isContract ? <Activity size={12} /> : <Wallet size={12} />}
+                                  {report.identity.isContract ? D.contract : D.wallet}
+                              </span>
+                              <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
+                                  {lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType}
+                              </span>
+                              <div className="flex gap-1 ml-2 text-slate-500">
+                                  <button onClick={() => navigator.clipboard.writeText(report.address)} className="p-1 hover:text-white transition"><Copy size={14} /></button>
+                                  <button onClick={() => setShowNickModal(true)} className={`p-1 transition ${isFav?'text-amber-400':'hover:text-amber-400'}`}><Star size={14} fill={isFav?"currentColor":"none"} /></button>
+                                  <a href={`https://etherscan.io/address/${report.address}`} target="_blank" className="p-1 hover:text-white transition"><ExternalLink size={14} /></a>
+                              </div>
+                          </div>
+                      </div>
+
+                      {/* 中：合并后的智能摘要 (AI Briefing) */}
+                      <div className="p-3 bg-slate-900/40 rounded-lg border border-slate-800/50 text-xs md:text-sm text-slate-300 leading-relaxed font-sans">
+                         <span className="text-blue-400 font-bold mr-2">⚡️ Insight:</span>
+                         {getSummaryText()}
+                      </div>
+
+                      {/* 下：核心指标栏 (Metrics Bar) */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
+                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
+                            <Zap size={14} className="text-yellow-500" />
+                            <div>
+                               <div className="text-[10px] text-slate-500 uppercase">{D.metricTx}</div>
+                               <div className="text-sm font-mono font-bold">{report.activity.txCount}</div>
+                            </div>
+                         </div>
+                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
+                            <Calendar size={14} className="text-blue-500" />
+                            <div>
+                               <div className="text-[10px] text-slate-500 uppercase">{D.metricDays}</div>
+                               <div className="text-sm font-mono font-bold">{report.activity.activeDays}</div>
+                            </div>
+                         </div>
+                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
+                            <Flame size={14} className="text-orange-500" />
+                            <div>
+                               <div className="text-[10px] text-slate-500 uppercase">{D.metricGas}</div>
+                               <div className="text-sm font-mono font-bold">{formatMoney(report.gas.totalGasUsd, lang)}</div>
+                            </div>
+                         </div>
+                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
+                            <Layers size={14} className="text-purple-500" />
+                            <div>
+                               <div className="text-[10px] text-slate-500 uppercase">{D.metricInteract}</div>
+                               <div className="text-sm font-mono font-bold">{report.activity.contractsInteracted}</div>
+                            </div>
+                         </div>
+                      </div>
+                  </div>
+
+                  {/* 右侧：总资产 (仅桌面端显示，移动端在标题旁) */}
+                  <div className="hidden md:block text-right min-w-[120px]">
+                      <div className="text-[11px] text-slate-500 uppercase tracking-widest mb-1">{D.netWorth}</div>
+                      <div className="text-3xl font-bold text-white font-mono tracking-tight">{formatMoney(report.assets.totalValue, lang)}</div>
+                      <div className="text-[11px] text-slate-400 mt-2 font-mono">
+                          {D.firstActive}: {report.identity.createdAt ? new Date(report.identity.createdAt).toLocaleDateString() : D.unknownDate}
+                      </div>
+                  </div>
+               </div>
+            </div>
+
+            {/* [B] LEFT COLUMN: 资产 */}
+            <div className="lg:col-span-7 space-y-5">
+                <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl p-5">
+                    <h3 className="font-bold text-slate-200 text-sm mb-4 flex items-center gap-2">
+                        <Wallet size={16} className="text-blue-500" /> {D.assetsTitle}
+                    </h3>
+                    <AssetTable assets={report.assets} lang={lang} />
+                </div>
+            </div>
+
+            {/* [C] RIGHT COLUMN: 真实交易流 */}
+            <div className="lg:col-span-5 flex flex-col gap-5">
+                <div className="flex-1">
+                    <RealTransactionFeed txs={report.activity.recentTxs} address={report.address} lang={lang} />
+                </div>
+                
+                {/* Pro 广告 */}
+                <a href={TG_CHANNEL_URL} target="_blank" className="block p-5 rounded-xl border border-blue-600/30 bg-gradient-to-br from-blue-900/20 to-black hover:border-blue-500/50 transition group">
+                    <div className="flex justify-between items-center mb-2">
+                        <h4 className="font-bold text-blue-400 text-sm">Upgrade to PRO</h4>
+                        <ArrowUpRight size={16} className="text-blue-500 group-hover:translate-x-1 group-hover:-translate-y-1 transition" />
                     </div>
-                    <p className="text-[11px] text-slate-500 font-mono break-all">
-                      {report.address}
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                        {lang === 'cn' ? '解锁完整资金流向图谱、无限期交易历史与实时巨鲸异动推送。' : 'Unlock full fund flow graph, unlimited history and real-time whale alerts.'}
                     </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <RiskBadge level={report.risk.level} />
-                    <TagBadge>{report.risk.personaType}</TagBadge>
-                    <button
-                      type="button"
-                      onClick={() => toggleFavorite(report)}
-                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${
-                        isFavorite(report.address)
-                          ? "border-amber-400/80 bg-amber-500/10 text-amber-200"
-                          : "border-slate-600/80 bg-slate-900/80 text-slate-200 hover:border-amber-400/80 hover:text-amber-200"
-                      } transition-colors`}
-                    >
-                      {isFavorite(report.address) ? "已在自选" : "加入自选"}
-                    </button>
-                  </div>
-                </div>
-                <p className="text-[13px] text-slate-300 mb-3 leading-relaxed">
-                  {report.summary.text}
-                </p>
-                <div className="grid grid-cols-3 gap-3 text-xs text-slate-300">
-                  <div>
-                    <p className="text-slate-400">总资产估值</p>
-                    <p className="font-semibold">
-                      ${formatUsd(report.assets.totalValue)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400">报告生成时间</p>
-                    <p>{formatDate(report.meta.generatedAt)}</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400">数据版本</p>
-                    <p className="font-mono text-[11px]">
-                      v{report.meta.version || report.version}
-                    </p>
-                  </div>
-                </div>
-              </div>
+                </a>
+            </div>
 
-              <div className="space-y-3">
-                <div className="rounded-2xl border border-slate-800/80 bg-gradient-to-br from-slate-950/95 via-zinc-900/90 to-slate-950/95 p-4 text-xs text-slate-300 space-y-2">
-                  <div>
-                    <p className="text-slate-400 mb-1">身份信息</p>
-                    <p className="mb-1">
-                      类型：
-                      {report.identity.isContract ? "合约地址" : "普通钱包"}
-                    </p>
-                    <p>创建时间：{formatDate(report.identity.createdAt)}</p>
-                  </div>
-                  <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
-                    <p className="text-slate-400 text-[11px]">
-                      自定义备注 / 别名（仅保存在当前设备）
-                    </p>
-                    <div className="flex gap-2">
-                      <input
-                        className="flex-1 rounded-lg bg-black/60 border border-slate-700/80 px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-cyan-500/70 focus:border-cyan-500/60 transition"
-                        placeholder="例如：主力钱包 / 机器人地址 / 某项目方热钱包..."
-                        value={currentNote}
-                        onChange={(e) => setCurrentNote(e.target.value)}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleSaveNote}
-                        className="rounded-lg bg-slate-800 px-2 py-1 text-[11px] text-slate-100 hover:bg-cyan-600/80 transition-colors"
-                      >
-                        保存
-                      </button>
+          </div>
+        )}
+
+        {/* 收藏弹窗 */}
+        {showNickModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                <div className="bg-[#111] border border-slate-800 rounded-xl p-6 w-full max-w-sm shadow-2xl">
+                    <h3 className="text-lg font-bold text-white mb-4">{D.setNickname}</h3>
+                    <input 
+                        autoFocus
+                        value={tempNick}
+                        onChange={e => setTempNick(e.target.value)}
+                        placeholder="e.g. Smart Money / Hacker..."
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white outline-none focus:border-blue-500 mb-6"
+                    />
+                    <div className="flex gap-3">
+                        <button onClick={() => setShowNickModal(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2.5 rounded-lg text-sm font-medium transition">{D.cancel}</button>
+                        <button onClick={saveFavorite} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-lg text-sm font-medium transition">{D.confirm}</button>
                     </div>
-                  </div>
                 </div>
-                <AllocationCard report={report} />
-                <HoldingsCard report={report} />
-              </div>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <ActivityCard report={report} />
-              <GasCard report={report} />
-              <RiskCard report={report} />
-            </div>
-
-            {/* Pro 预告卡片 */}
-            <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-r from-slate-950 via-slate-900/95 to-slate-950 px-4 py-4 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-xs font-semibold text-cyan-300">
-                    即将推出：WalletAudit Pro
-                  </p>
-                  <p className="text-[11px] text-slate-300 mt-1">
-                    当前页面为基础版，已经开放了部分「Pro」的功能，例如完整持仓视图 /
-                    CSV 导出 / 本地自选地址和备注系统。后续会在同一地址上逐步解锁更多专业工具。
-                  </p>
-                </div>
-                <span className="inline-flex items-center rounded-full border border-cyan-400/70 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium text-cyan-200">
-                  Pro 版本规划中
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
-                <div>
-                  <p className="text-slate-400 mb-1">基础版（当前已上线）：</p>
-                  <ul className="space-y-0.5 text-slate-200">
-                    <li>· 资产配置图表 + 总资产估值</li>
-                    <li>· 行为画像（近期交易分布 + Top 合约）</li>
-                    <li>· Gas 消耗概览（最近 50 笔）</li>
-                    <li>· 风险评分 + 钱包人格标签</li>
-                    <li>· 完整持仓视图（试验版）+ CSV 导出</li>
-                    <li>· 本地历史记录 + 自选地址 + 自定义备注</li>
-                  </ul>
-                </div>
-                <div>
-                  <p className="text-slate-400 mb-1">Pro 版规划中的功能：</p>
-                  <ul className="space-y-0.5 text-slate-200">
-                    <li>· 多钱包分组管理与一键体检</li>
-                    <li>· 更长周期的历史净值 / 行为变化曲线</li>
-                    <li>· 地址标签云（项目方 / 机器人 / 巨鲸等）</li>
-                    <li>· 异常波动提醒（资产 / 行为 / 风险评分）</li>
-                    <li>· 一键导出完整体检数据（CSV / API 接口）</li>
-                    <li>· Pro 用户专属报告模版与批量生成能力</li>
-                  </ul>
-                </div>
-              </div>
-
-              <p className="text-[11px] text-slate-400 mt-1">
-                Pro 功能会优先在 Telegram 频道内开启内测，欢迎先加入频道关注进展。
-              </p>
-            </div>
-
-            {TG_CHANNEL_HANDLE && tgChannelUrl && (
-              <div className="mt-2 rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-slate-950 via-slate-900/90 to-slate-950 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div>
-                  <p className="text-xs font-semibold text-emerald-300">
-                    想看更多典型钱包体检 & 高级功能内测？
-                  </p>
-                  <p className="text-[11px] text-slate-300 mt-1">
-                    关注 Telegram 频道{" "}
-                    <span className="font-mono text-emerald-300">
-                      {TG_CHANNEL_HANDLE}
-                    </span>
-                    ，获取后续更新与 Pro 版进展。
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <a
-                    href={tgChannelUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center rounded-full bg-emerald-500 px-3 py-1.5 text-[11px] font-semibold text-slate-950 shadow-[0_0_18px_rgba(16,185,129,0.6)] hover:bg-emerald-400 transition-colors"
-                  >
-                    打开频道
-                  </a>
-                  <button
-                    type="button"
-                    onClick={handleCopyChannel}
-                    className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/20 transition-colors"
-                  >
-                    复制频道名
-                  </button>
-                </div>
-              </div>
-            )}
-          </section>
         )}
       </div>
     </main>
