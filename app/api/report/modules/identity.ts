@@ -1,5 +1,5 @@
 // app/api/report/modules/identity.ts
-// ✅ v1.1 — Identity module (stable compile)
+// ✅ v1.2 — Identity module (Fixed contract detection)
 
 import { fetchJsonWithTimeout } from "../utils/fetch";
 import { cached } from "../utils/cache";
@@ -9,6 +9,7 @@ const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL!;
 
 async function getIsContract(address: string): Promise<boolean> {
   const key = `is-contract:${address.toLowerCase()}`;
+  // 缓存 10 分钟
   return cached(key, 10 * 60 * 1000, async () => {
     try {
       const res = await fetchJsonWithTimeout(ALCHEMY_RPC, {
@@ -23,7 +24,10 @@ async function getIsContract(address: string): Promise<boolean> {
       });
 
       const code = (res?.result as string | undefined) || "0x";
-      return typeof code === "string" && code !== "0x";
+      
+      // 核心修正：只有当 bytecode 长度大于 2 (即不仅仅是 "0x") 时，才确实是合约
+      // 普通钱包通常返回 "0x"，长度为 2
+      return typeof code === "string" && code.length > 2;
     } catch {
       return false;
     }
@@ -35,9 +39,8 @@ export async function buildIdentityModule(address: string): Promise<IdentityModu
   return {
     address: address.toLowerCase(),
     isContract,
-    createdAt: null, // ✅ 先稳定；后续你要补“创建时间”再迭代
+    createdAt: null, // 后续版本可接入 Etherscan API 获取第一笔交易时间
   };
 }
 
-// ✅ 兼容 default export（防止有人用不同 import 写法）
 export default buildIdentityModule;

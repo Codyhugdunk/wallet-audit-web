@@ -1,11 +1,9 @@
 // app/api/report/modules/gas.ts
-// 轻量版 Gas 统计（最近最多 50 笔主动交易）
-
 import { fetchJsonWithTimeout } from "../utils/fetch";
 import { formatUnits, hexToBigInt, safeFloat } from "../utils/hex";
 import { GasModule } from "./types";
 import { getEthPrice } from "./prices";
-import { getDisplayName } from "./labels";
+import { getDisplayName } from "./labels"; // ✅ 现在这个文件存在了
 
 const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL!;
 const MAX_TX_FOR_GAS = 50;
@@ -26,8 +24,8 @@ async function fetchRecentTxHashes(address: string): Promise<string[]> {
         params: [
           {
             fromAddress: address,
-            maxCount: "0x1f4",
-            category: ["external", "erc20", "internal", "erc721", "erc1155"],
+            maxCount: "0x32", // Hex 50
+            category: ["external", "erc20"], // 只看主动交易
             withMetadata: false,
           },
         ],
@@ -60,33 +58,37 @@ async function fetchReceipt(hash: string): Promise<any | null> {
   }
 }
 
+// 并发控制函数
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
   fn: (item: T) => Promise<R>
 ): Promise<R[]> {
   const results: R[] = [];
-  let index = 0;
-
-  async function worker() {
-    while (index < items.length) {
-      const current = index++;
-      results[current] = await fn(items[current]);
+  const executing: Promise<void>[] = [];
+  
+  for (const item of items) {
+    const p = Promise.resolve().then(() => fn(item));
+    results.push(p as any);
+    
+    const e: Promise<void> = p.then(() => {
+        executing.splice(executing.indexOf(e), 1);
+    });
+    executing.push(e);
+    
+    if (executing.length >= limit) {
+        await Promise.race(executing);
     }
   }
-
-  const workers = [];
-  const workerCount = Math.min(limit, items.length);
-  for (let i = 0; i < workerCount; i++) workers.push(worker());
-
-  await Promise.all(workers);
-  return results;
+  return Promise.all(results);
 }
 
 export async function buildGasModule(address: string): Promise<GasModule> {
   const hashes = await fetchRecentTxHashes(address);
+  
+  // 默认空返回
   if (!hashes.length) {
-    return { txCount: 0, totalGasEth: 0, totalGasUsd: 0, topTxs: [] };
+    return { totalGasEth: 0, totalGasUsd: 0, topTxs: [] };
   }
 
   const [ethPrice, receipts] = await Promise.all([
@@ -100,16 +102,11 @@ export async function buildGasModule(address: string): Promise<GasModule> {
       if (!receipt) return null;
 
       const gasUsedHex = receipt.gasUsed as string | undefined;
-      const effGasPriceHex = receipt.effectiveGasPrice as string | undefined;
-      const gasPriceHex = effGasPriceHex || (receipt.gasPrice as string | undefined);
+      const gasPriceHex = (receipt.effectiveGasPrice || receipt.gasPrice) as string | undefined;
 
       if (!gasUsedHex || !gasPriceHex) return null;
 
-      const gasUsed = hexToBigInt(gasUsedHex);
-      const gasPrice = hexToBigInt(gasPriceHex);
-      if (gasUsed === 0n || gasPrice === 0n) return null;
-
-      const gasWei = gasUsed * gasPrice;
+      const gasWei = hexToBigInt(gasUsedHex) * hexToBigInt(gasPriceHex);
       const gasEth = safeFloat(formatUnits(gasWei, 18), 0);
       if (gasEth <= 0) return null;
 
@@ -120,25 +117,23 @@ export async function buildGasModule(address: string): Promise<GasModule> {
     })
   );
 
-  const gasEntries = entries.filter(Boolean) as Array<{
-    hash: string;
-    gasEth: number;
-    to: string;
-    toDisplay: string;
-  }>;
+  const validEntries = entries.filter((e): e is NonNullable<typeof e> => e !== null);
 
-  const totalGasEth = gasEntries.reduce((sum, x) => sum + x.gasEth, 0);
+  const totalGasEth = validEntries.reduce((sum, x) => sum + x.gasEth, 0);
   const totalGasUsd = safeFloat(totalGasEth * ethPrice, 0);
 
-  const topTxs = gasEntries
-    .slice()
+  const topTxs = validEntries
     .sort((a, b) => b.gasEth - a.gasEth)
-    .slice(0, 3);
+    .slice(0, 3)
+    .map(tx => ({
+      hash: tx.hash,
+      gasEth: tx.gasEth,
+      toDisplay: tx.toDisplay // 确保字段名匹配
+    }));
 
   return {
-    txCount: hashes.length,
     totalGasEth,
     totalGasUsd,
-    topTxs,
+    topTxs, // ✅ 这里的结构现在符合 types.ts 定义了
   };
 }

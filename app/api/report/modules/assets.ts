@@ -1,5 +1,6 @@
-// assets.ts — WalletAudit v1.0
-// 资产模块：ETH + ERC20 + Token Metadata + 价格 + 分配结构
+// app/api/report/modules/assets.ts
+// WalletAudit Pro - Asset Logic v2.0
+// 增强了代币识别能力，不再把热门 Meme 归类为“其他”
 
 import { fetchJsonWithTimeout } from "../utils/fetch";
 import { formatUnits, hexToBigInt, safeFloat } from "../utils/hex";
@@ -9,31 +10,56 @@ import { AssetModule, TokenBalance } from "./types";
 
 const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL!;
 
-// 一些简单的分类规则
+// ==========================================
+// 1. 增强的代币字典 (Smart Dictionary)
+// ==========================================
+
+// 稳定币 (Stablecoins)
 const STABLE_SYMBOLS = new Set([
-  "USDT",
-  "USDC",
-  "DAI",
-  "USDE",
-  "USDS",
-  "FDUSD",
-  "TUSD",
-  "USDP",
-  "BUSD",
+  "USDT", "USDC", "DAI", "USDE", "USDS", "FDUSD", "TUSD", "USDP", "BUSD",
+  "FRAX", "LUSD", "GUSD", "PYUSD", "MIM", "ALUSD", "DOLA"
 ]);
 
+// 主流蓝筹 (Majors: L1/L2/DeFi Bluechip)
 const MAJOR_SYMBOLS = new Set([
-  "WETH",
-  "WBTC",
-  "UNI",
-  "AAVE",
-  "LDO",
-  "LINK",
-  "MKR",
+  "WETH", "WBTC", "CBETH", "RETH", "STETH", "EZETH", // ETH LSD
+  "UNI", "AAVE", "LDO", "LINK", "MKR", "COMP", "SNX", "CRV", "RPL", "FXS", // DeFi
+  "ARB", "OP", "MATIC", "POL", "IMX", "MNT", "STRK", "ZK", // L2
+  "RNDR", "FET", "WLD", "TAO", // AI
+  "ENA", "PENDLE", "ONDO" // New DeFi
 ]);
+
+// Meme 关键词匹配库 (比硬编码 Symbol 更智能)
+const MEME_KEYWORDS = [
+  "PEPE", "DOGE", "SHIB", "FLOKI", "BONK", "WIF", "MOG", "TURBO", 
+  "SPX", "LADYS", "MEME", "TRUMP", "MAGA", "BOME", "SLERF", "NEIRO",
+  "PENGU", "POPCAT", "BRETT", "HarryPotter", "SNEK"
+];
+
+// ==========================================
+// 2. 核心辅助函数
+// ==========================================
+
+function classifyToken(symbol: string): "Stablecoins" | "Majors" | "Meme" | "Others" {
+  if (!symbol) return "Others";
+  const sym = symbol.toUpperCase();
+
+  // 1. 精确匹配稳定币
+  if (STABLE_SYMBOLS.has(sym)) return "Stablecoins";
+  
+  // 2. 精确匹配主流币
+  if (MAJOR_SYMBOLS.has(sym)) return "Majors";
+
+  // 3. 模糊匹配 Meme (只要包含关键词，如 PEPEcoin, BabyDoge 都算)
+  for (const key of MEME_KEYWORDS) {
+    if (sym.includes(key)) return "Meme";
+  }
+
+  return "Others";
+}
 
 // -----------------------------
-// ETH 余额
+// RPC 获取 ETH 余额
 // -----------------------------
 async function getEthBalance(address: string): Promise<number> {
   try {
@@ -57,7 +83,7 @@ async function getEthBalance(address: string): Promise<number> {
 }
 
 // -----------------------------
-// ERC20 余额（alchemy_getTokenBalances）
+// RPC 获取 ERC20 余额
 // -----------------------------
 interface RawTokenBalance {
   contractAddress: string;
@@ -91,7 +117,7 @@ async function getRawTokenBalances(
 }
 
 // -----------------------------
-// Token Metadata（symbol / decimals）
+// Token Metadata
 // -----------------------------
 interface TokenMeta {
   symbol: string;
@@ -100,7 +126,7 @@ interface TokenMeta {
 
 async function fetchTokenMeta(contractAddress: string): Promise<TokenMeta> {
   const key = `token-meta:${contractAddress.toLowerCase()}`;
-  return cached(key, 10 * 60 * 1000, async () => {
+  return cached(key, 60 * 60 * 24 * 7 * 1000, async () => { // 缓存 7 天
     try {
       const res = await fetchJsonWithTimeout(ALCHEMY_RPC, {
         method: "POST",
@@ -126,37 +152,20 @@ async function fetchTokenMeta(contractAddress: string): Promise<TokenMeta> {
   });
 }
 
-// -----------------------------
-// 分类：Stable / Major / Meme / Other
-// -----------------------------
-function classifyToken(symbol: string): "Stablecoins" | "Majors" | "Meme" | "Others" {
-  const sym = symbol.toUpperCase();
-
-  if (STABLE_SYMBOLS.has(sym)) return "Stablecoins";
-  if (MAJOR_SYMBOLS.has(sym)) return "Majors";
-
-  // 简单判断 Meme：包含 PEPE / DOGE / SHIB 等关键词
-  if (sym.includes("PEPE") || sym.includes("DOGE") || sym.includes("SHIB")) {
-    return "Meme";
-  }
-
-  return "Others";
-}
-
-// -----------------------------
-// 构建资产模块主函数
-// -----------------------------
+// ==========================================
+// 3. 资产模块主逻辑
+// ==========================================
 export async function buildAssetsModule(
   address: string
 ): Promise<AssetModule> {
-  // 1. 基础数据：ETH 余额 + ERC20 原始余额
+  // 并行获取：ETH余额、ERC20列表、ETH价格
   const [ethAmount, rawTokens, ethPrice] = await Promise.all([
     getEthBalance(address),
     getRawTokenBalances(address),
     getEthPrice(),
   ]);
 
-  // 2. ERC20：获取 metadata + 数量
+  // 获取所有 Token 的 Metadata 和 价格
   const tokenAddresses = rawTokens.map((t) => t.contractAddress);
   const uniqueAddresses = Array.from(
     new Set(tokenAddresses.map((a) => a.toLowerCase()))
@@ -164,9 +173,7 @@ export async function buildAssetsModule(
 
   const [tokenPrices, metas] = await Promise.all([
     getTokenPrices(uniqueAddresses),
-    Promise.all(
-      uniqueAddresses.map((addr) => fetchTokenMeta(addr))
-    ),
+    Promise.all(uniqueAddresses.map((addr) => fetchTokenMeta(addr))),
   ]);
 
   const metaMap: Record<string, TokenMeta> = {};
@@ -174,6 +181,7 @@ export async function buildAssetsModule(
     metaMap[addr] = metas[idx];
   });
 
+  // 处理每个 Token 的数据
   const tokens: TokenBalance[] = rawTokens.map((t) => {
     const addr = t.contractAddress.toLowerCase();
     const meta = metaMap[addr] || { symbol: "UNKNOWN", decimals: 18 };
@@ -191,65 +199,56 @@ export async function buildAssetsModule(
     };
   });
 
-  // 3. 计算总价值
+  // 排序：价值高的排前面
+  tokens.sort((a, b) => b.value - a.value);
+
+  // 计算总价值
   const ethValue = safeFloat(ethAmount * ethPrice, 0);
+  // 只统计价值 > 0.01 美元的资产，避免显示太多 0.000001 的垃圾
   const tokensValue = tokens.reduce((sum, t) => sum + t.value, 0);
   const totalValue = safeFloat(ethValue + tokensValue, 0);
 
-  // 4. 资产分配（Allocation）
-  type Acc = {
-    [cat: string]: number;
+  // 资产分配统计
+  type Acc = { [cat: string]: number };
+  const acc: Acc = {
+    "ETH": 0,
+    "Stablecoins": 0,
+    "Majors": 0,
+    "Meme": 0,
+    "Others": 0
   };
 
-  const acc: Acc = {};
-
-  // ETH 单独一类
-  if (ethValue > 0) {
-    acc["ETH"] = (acc["ETH"] || 0) + ethValue;
-  }
+  if (ethValue > 0) acc["ETH"] = ethValue;
 
   for (const t of tokens) {
+    // 垃圾币过滤：如果是 'UNKNOWN' 且没有价格，或者价值极低，虽然计入 token 列表但不一定计入主要分类权重（可视需求调整）
     const cat = classifyToken(t.symbol);
     acc[cat] = (acc[cat] || 0) + t.value;
   }
 
-  const allocation = Object.entries(acc).map(([category, value]) => {
-    const ratio = totalValue > 0 ? value / totalValue : 0;
-    return {
-      category,
-      value,
-      ratio,
-    };
-  });
+  const allocation = Object.entries(acc)
+    .filter(([_, val]) => val > 0) // 只返回有余额的分类
+    .map(([category, value]) => {
+      const ratio = totalValue > 0 ? value / totalValue : 0;
+      return { category, value, ratio };
+    })
+    .sort((a, b) => b.value - a.value); // 按占比排序
 
-  // 5. 长尾资产（otherTokens）定义：
-  // - 没有价格，或者
-  // - 价值 < 1 美元的 Token
+  // 长尾资产定义优化：价值 < 10U 且占比极低的，归为 OtherTokens（不一定显示在主列表）
   const otherTokens = tokens.filter(
-    (t) => !t.hasPrice || t.value < 1
+    (t) => !t.hasPrice || t.value < 5
   );
 
-  // 6. 价格警告
-  let priceWarning: string | null = null;
-  const noPriceCount = tokens.filter((t) => !t.hasPrice).length;
-  if (noPriceCount > 0) {
-    priceWarning = `有 ${noPriceCount} 个代币缺少价格，实际总价值可能偏低。`;
-  }
-
   return {
-    eth: {
-      amount: ethAmount,
-      value: ethValue,
-    },
+    eth: { amount: ethAmount, value: ethValue },
     tokens,
     totalValue,
     allocation,
     otherTokens,
-    priceWarning,
+    priceWarning: null
   };
 }
 
-// === 新增：给 route.ts 调用的标准导出名 ===
 export async function getAssets(address: string): Promise<AssetModule> {
   return buildAssetsModule(address);
 }

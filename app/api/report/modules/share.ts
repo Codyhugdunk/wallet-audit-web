@@ -1,6 +1,4 @@
-// share.ts — WalletAudit v1.0
-// 用于分享卡片 / OG Image 的核心字段封装
-
+// app/api/report/modules/share.ts
 import { AssetModule, ShareModule, RiskModule } from "./types";
 
 function shortenAddress(address: string): string {
@@ -11,10 +9,7 @@ function shortenAddress(address: string): string {
 export function buildShareModule(
   address: string,
   assets: AssetModule,
-  ethPrice: number,
-  valueChange: number | null,
-  valueChangePct: number | null,
-  timestamp: number
+  risk: RiskModule // ✅ 新增参数，方便获取 riskScore
 ): ShareModule {
   const shortAddr = shortenAddress(address);
   const ethAmount = assets.eth.amount;
@@ -22,30 +17,17 @@ export function buildShareModule(
 
   return {
     shortAddr,
-    ethAmount,
-    ethPrice,
     totalValue,
-    valueChange,
-    valueChangePct,
-    timestamp,
+    riskScore: risk.score, // ✅ 使用 Risk 模块算出来的分
+    riskLevel: risk.level, // ✅ 使用 Risk 模块算出来的等级
   };
 }
 
-// === 新增：给 route.ts 调用的标准导出名 ===
-// 这里我们只用当前资产快照，暂时不做历史涨跌计算
 export function buildShareSnapshot(input: {
   address: string;
   assets: AssetModule;
   risk: RiskModule;
 }): ShareModule {
-  const { address, assets } = input;
-  const timestamp = Date.now();
-
-  // 从资产里反推一个大概的 ETH 单价（有就用，没有就 0）
-  const ethAmount = assets.eth.amount;
-  const ethValue = assets.eth.value;
-  const ethPrice =
-    ethAmount > 0 && ethValue > 0 ? ethValue / ethAmount : 0;
-
-  return buildShareModule(address, assets, ethPrice, null, null, timestamp);
+  // 直接调用上面的函数，保持逻辑统一
+  return buildShareModule(input.address, input.assets, input.risk);
 }

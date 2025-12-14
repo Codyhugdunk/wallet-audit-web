@@ -1,4 +1,7 @@
 // app/api/report/route.ts
+// ✅ WalletAudit Pro - Main API Route
+// 已适配最新的模块接口 (Risk v2, Assets v2, Share v2)
+
 import { NextRequest, NextResponse } from "next/server";
 
 import { buildIdentityModule } from "./modules/identity";
@@ -31,7 +34,8 @@ export async function GET(req: NextRequest) {
 
     const generatedAt = Date.now();
 
-    // 并发获取
+    // 1. 并发获取基础数据模块
+    // 注意：Risk 和 Summary 依赖 Assets 和 Activity，所以必须先等它们算完
     const [identity, assets, activity, gas] = await Promise.all([
       buildIdentityModule(address),
       buildAssetsModule(address),
@@ -39,15 +43,20 @@ export async function GET(req: NextRequest) {
       buildGasModule(address),
     ]);
 
-    // 同步计算
+    // 2. 同步计算高级分析模块
+    // Risk 模块现在包含了高级金融算法 (HHI, Degen Index)
     const risk = buildRiskModule(assets, activity);
+    
+    // Summary 模块生成自然语言总结
     const summary = buildSummaryModule(identity, assets, activity, risk);
 
-    // share：暂时 ethPrice 传 0，不影响当前 UI
-    const share = buildShareModule(address, assets, 0, null, null, generatedAt);
+    // 3. 生成分享卡片数据
+    // ✅ 修复点：这里使用了新的接口，直接传入 risk 对象
+    const share = buildShareModule(address, assets, risk);
 
+    // 4. 组装最终报告
     const report = {
-      version: "1.1",
+      version: "1.2", // 版本号升级
       address,
       identity,
       summary,
@@ -57,9 +66,10 @@ export async function GET(req: NextRequest) {
       risk,
       share,
       meta: {
-        version: "1.1",
+        version: "1.2",
         generatedAt,
         fromCache: false,
+        // 下面这些历史字段留空，等未来开发历史记录功能时再填
         history: [],
         previousValue: null,
         valueChange: null,
@@ -67,10 +77,11 @@ export async function GET(req: NextRequest) {
       },
     };
 
-    // 统计埋点（可选）
+    // 5. 简单的统计埋点 (可选，防止报错)
     try {
       const statsUrl = process.env.WALLETAUDIT_STATS_HIT_URL;
       if (statsUrl) {
+        // 不等待埋点结果，避免阻塞响应
         void fetch(statsUrl, {
           method: "POST",
           headers: { "content-type": "application/json" },
