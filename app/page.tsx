@@ -474,10 +474,14 @@ export default function HomePage() {
                   {(() => {
                       const s = getScoreStyle(report.risk.score);
                       return (
-                        <div className={`flex flex-col items-center justify-center w-24 h-24 md:w-28 md:h-28 rounded-xl border ${s.bg} ${s.border} ${s.color} shrink-0`}>
-                            <span className="text-3xl md:text-4xl font-bold font-mono">{report.risk.score}</span>
-                            <span className="text-[10px] opacity-80 uppercase mt-1 font-bold text-center leading-tight px-1">{D.riskScore}</span>
-                        </div>
+                       <div className={`flex flex-col items-center justify-center w-24 h-24 md:w-28 md:h-28 rounded-xl border ${s.bg} ${s.border} ${s.color} shrink-0`}>
+    <div className="flex items-baseline">
+        <span className="text-3xl md:text-4xl font-bold font-mono">{report.risk.score}</span>
+        {/* ✅ 新增：显示分母 /100 */}
+        <span className="text-sm opacity-60 font-mono ml-0.5">/100</span>
+    </div>
+    <span className="text-[10px] opacity-80 uppercase mt-1 font-bold text-center leading-tight px-1">{D.riskScore}</span>
+</div>
                       )
                   })()}
 
