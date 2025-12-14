@@ -1,4 +1,4 @@
-// summary.ts — WalletAudit v1.1
+// app/api/report/modules/summary.ts — WalletAudit v1.1 (UTF-8)
 // 基于 identity / assets / activity / risk 生成一段可读性强的钱包概要文本 + 人格类型
 
 import {
@@ -13,25 +13,24 @@ function trimZero(numStr: string): string {
   return numStr.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
 }
 
-// 中文风格金额：用「万 / 亿」单位
+// ✅ 你喜欢的中文金额表达：优先 “万美元/亿”
+// - 不要 “xxx百万/xxx千万/xxx千美元” 这种英文式
 function formatUsd(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "接近 0 美元";
 
-  if (value < 1_000) {
-    return `${trimZero(value.toFixed(2))} 美元`;
+  if (value < 1_000) return `${trimZero(value.toFixed(2))} 美元`;
+  if (value < 10_000) return `${Math.round(value)} 美元`;
+
+  // 以 “万美元” 为主表达
+  const wanUsd = value / 10_000;
+  if (wanUsd < 10_000) {
+    // 1 万美元 ~ 9999 万美元
+    return `${trimZero(wanUsd.toFixed(2))} 万美元`;
   }
 
-  if (value < 10_000) {
-    return `${Math.round(value)} 美元`;
-  }
-
-  const wan = value / 10_000;
-  if (wan < 10_000) {
-    return `${trimZero(wan.toFixed(2))} 万美元`;
-  }
-
-  const yi = wan / 10_000;
-  return `${trimZero(yi.toFixed(2))} 亿美元`;
+  // 亿美元
+  const yiUsd = wanUsd / 10_000;
+  return `${trimZero(yiUsd.toFixed(2))} 亿美元`;
 }
 
 function ratioToText(ratio: number): string {
@@ -52,7 +51,10 @@ function formatAge(createdAt: number | null): string {
   if (!createdAt) return "创建时间暂不可确定";
 
   const now = Date.now();
-  const diffDays = Math.max(1, Math.floor((now - createdAt) / (24 * 3600 * 1000)));
+  const diffDays = Math.max(
+    1,
+    Math.floor((now - createdAt) / (24 * 3600 * 1000))
+  );
 
   if (diffDays < 7) return `创建于最近 ${diffDays} 天内`;
   if (diffDays < 30) return `创建于最近 ${Math.floor(diffDays / 7)} 周内`;
@@ -100,25 +102,19 @@ export function buildSummaryModule(
 
   if (ethAlloc && ethAlloc.value > 0) {
     structPieces.push(
-      `其中 ETH 仓位占整体资产的 ${trimZero(
-        (ethAlloc.ratio * 100).toFixed(1)
-      )}% 左右`
+      `其中 ETH 仓位占整体资产的 ${trimZero((ethAlloc.ratio * 100).toFixed(1))}% 左右`
     );
   }
 
   if (stableAlloc && stableAlloc.value > 0) {
     structPieces.push(
-      `稳定币仓位 ${stableText}（约 ${trimZero(
-        (stableAlloc.ratio * 100).toFixed(1)
-      )}%）`
+      `稳定币仓位 ${stableText}（约 ${trimZero((stableAlloc.ratio * 100).toFixed(1))}%）`
     );
   }
 
   if (memeAlloc && memeAlloc.value > 0) {
     structPieces.push(
-      `Meme 等高波动代币仓位 ${memeText}（约 ${trimZero(
-        (memeAlloc.ratio * 100).toFixed(1)
-      )}%）`
+      `Meme 等高波动代币仓位 ${memeText}（约 ${trimZero((memeAlloc.ratio * 100).toFixed(1))}%）`
     );
   }
 
@@ -126,33 +122,11 @@ export function buildSummaryModule(
     summaryParts.push("从资产结构来看，" + structPieces.join("，") + "。");
   }
 
-  // 行为画像
   summaryParts.push(`从近期行为上看，${activityText}`);
 
-  // 风险
   summaryParts.push(
     `综合资产结构与交易活跃度，系统给出的风险评分为 ${score} / 100，${riskText}。`
   );
 
-  const text = summaryParts.join("");
-
-  return {
-    text,
-  };
-}
-
-// === 新增：给 route.ts 调用的标准导出名 ===
-export function buildSummary(input: {
-  identity: IdentityInfo;
-  assets: AssetModule;
-  activity: ActivityModule;
-  gas: any;
-  risk: RiskModule;
-}): SummaryModule {
-  return buildSummaryModule(
-    input.identity,
-    input.assets,
-    input.activity,
-    input.risk
-  );
+  return { text: summaryParts.join("") };
 }
