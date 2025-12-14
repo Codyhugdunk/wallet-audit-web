@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
-import html2canvas from "html2canvas";
+import { useState, useEffect, useMemo } from "react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
 } from "recharts";
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
-  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, Share2
+  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, User
 } from "lucide-react";
 
 // ==========================================
@@ -65,6 +64,15 @@ type FavoriteItem = { address: string; nickname: string; addedAt: number; tags?:
 // ==========================================
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
 
+// 🔥 热门地址库 (手动维护的引流入口)
+const HOT_WALLETS = [
+  { name: "Vitalik (V神)", address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", tag: "💎 信仰者" },
+  { name: "Justin Sun (孙宇晨)", address: "0x3DdfA8eC3052539b6C9549F12cEA2C295cfF5296", tag: "🐋 超级巨鲸" },
+  { name: "Donald Trump", address: "0x94845333028B1204Fbe14E1278Fd4Adde4660273", tag: "🇺🇸 名人" },
+  { name: "BlackRock (贝莱德)", address: "0x13e382A38aC10f044421290D45D8197EE0961443", tag: "🏦 机构" },
+  { name: "Ronin Hacker", address: "0x098B716B8Aaf21512996dC57EB0615e2383E2f96", tag: "☠️ 黑客" },
+];
+
 const PERSONA_MAP: Record<string, string> = {
   "Golden Dog Hunter": "金狗猎人",
   "Whale": "巨鲸",
@@ -116,10 +124,7 @@ const DICT = {
     spender: "授权对象",
     amount: "额度",
     unknownContract: "未知合约",
-    shareBtn: "生成报告卡片",
-    downloading: "生成中...",
-    shareTitle: "WalletAudit 链上审计报告",
-    scanToUse: "扫码体检你的钱包"
+    hotWallets: "热门追踪 🔥"
   },
   en: {
     title: "WalletAudit",
@@ -160,10 +165,7 @@ const DICT = {
     spender: "Spender",
     amount: "Amount",
     unknownContract: "Unknown",
-    shareBtn: "Share Card",
-    downloading: "Generating...",
-    shareTitle: "WalletAudit On-chain Report",
-    scanToUse: "Audit Your Wallet"
+    hotWallets: "Trending Now 🔥"
   }
 };
 
@@ -205,123 +207,6 @@ function formatEth(wei: string) {
 // ==========================================
 // 3. 核心功能组件 (UI Parts)
 // ==========================================
-
-// ✅ 彻底重写：无菌版分享卡片
-// 移除了所有 Lucide 组件，全部换成 svg 标签 + 纯 Hex 颜色
-function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'|'en', targetRef: any }) {
-    const D = DICT[lang];
-    const score = report.risk.score;
-    const isSafe = score >= 80;
-    
-    // 纯 HEX 颜色
-    const bgMain = '#0a0a0a'; 
-    const textWhite = '#ffffff';
-    const textMuted = '#94a3b8'; 
-    const accentColor = isSafe ? '#34d399' : score <= 50 ? '#f87171' : '#fbbf24'; 
-    const bgCard = '#171717';
-    const borderCard = '#262626';
-    const bgGlowHex = isSafe ? '#064e3b' : score <= 50 ? '#7f1d1d' : '#78350f';
-
-    return (
-        <div style={{ position: 'fixed', top: 0, left: 0, zIndex: -9999, opacity: 0, pointerEvents: 'none' }}>
-            <div ref={targetRef} style={{
-                width: '400px', 
-                backgroundColor: bgMain,
-                padding: '24px',
-                fontFamily: 'sans-serif',
-                border: '1px solid #333',
-                borderRadius: '16px',
-                position: 'relative',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '24px',
-                overflow: 'hidden'
-            }}>
-                {/* 顶部装饰条 */}
-                <div style={{
-                    position: 'absolute', top: 0, left: 0, right: 0, height: '6px',
-                    backgroundColor: accentColor,
-                }}></div>
-
-                {/* 纯 CSS 光晕 */}
-                <div style={{
-                    position: 'absolute', top: '-50px', right: '-50px',
-                    width: '200px', height: '200px',
-                    backgroundColor: bgGlowHex,
-                    filter: 'blur(80px)',
-                    opacity: 0.4,
-                    zIndex: 0
-                }}></div>
-
-                {/* Header (纯 SVG 替代 Lucide Icon) */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', position: 'relative', zIndex: 10 }}>
-                    <div style={{ fontSize: '20px', fontWeight: '900', color: textWhite, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {/* 纯 SVG 闪电图标，不带 class */}
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
-                        </svg>
-                        WalletAudit
-                    </div>
-                    <div style={{ fontSize: '12px', color: textMuted }}>
-                        {new Date().toLocaleDateString()}
-                    </div>
-                </div>
-
-                {/* Score Section */}
-                <div style={{ textAlign: 'center', padding: '20px 0', borderBottom: '1px solid #333', position: 'relative', zIndex: 10 }}>
-                    <div style={{ fontSize: '12px', color: textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>{D.riskScore}</div>
-                    <div style={{ 
-                        fontSize: '64px', fontWeight: 'bold', color: accentColor, lineHeight: '1',
-                    }}>
-                        {score}
-                    </div>
-                    <div style={{ 
-                        marginTop: '16px', 
-                        display: 'inline-block', 
-                        padding: '6px 16px', 
-                        borderRadius: '99px', 
-                        backgroundColor: '#1e293b', 
-                        color: '#e2e8f0', 
-                        fontSize: '12px',
-                        border: '1px solid #334155'
-                    }}>
-                        {lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType}
-                    </div>
-                </div>
-
-                {/* Metrics */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', position: 'relative', zIndex: 10 }}>
-                    <div style={{ backgroundColor: bgCard, padding: '16px', borderRadius: '12px', border: `1px solid ${borderCard}` }}>
-                        <div style={{ fontSize: '10px', color: textMuted, textTransform: 'uppercase' }}>{D.netWorth}</div>
-                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: textWhite, marginTop: '4px' }}>
-                            {formatMoney(report.assets.totalValue, lang)}
-                        </div>
-                    </div>
-                    <div style={{ backgroundColor: bgCard, padding: '16px', borderRadius: '12px', border: `1px solid ${borderCard}` }}>
-                        <div style={{ fontSize: '10px', color: textMuted, textTransform: 'uppercase' }}>{D.riskCount}</div>
-                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: report.approvals && report.approvals.riskCount > 0 ? '#f87171' : accentColor, marginTop: '4px' }}>
-                            {report.approvals ? report.approvals.riskCount : 0}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Footer */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', position: 'relative', zIndex: 10 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '10px', color: textMuted }}>{D.scanToUse}</span>
-                        <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#60a5fa' }}>walletaudit.me</span>
-                    </div>
-                    {/* 纯 CSS 二维码模拟 */}
-                    <div style={{ width: '48px', height: '48px', backgroundColor: 'white', borderRadius: '4px', padding: '4px' }}>
-                        <div style={{ width: '100%', height: '100%', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <span style={{ fontSize: '8px', color: 'white', fontWeight: 'bold' }}>QR</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    )
-}
 
 function ApprovalsCard({ approvals, lang }: { approvals: NonNullable<Report['approvals']>, lang: 'cn' | 'en' }) {
     const D = DICT[lang];
@@ -476,10 +361,6 @@ export default function HomePage() {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [showNickModal, setShowNickModal] = useState(false);
   const [tempNick, setTempNick] = useState("");
-  
-  const shareRef = useRef<HTMLDivElement>(null);
-  const [generatingImg, setGeneratingImg] = useState(false);
-
   const D = DICT[lang];
 
   useEffect(() => {
@@ -570,35 +451,9 @@ export default function HomePage() {
       return text;
   };
 
-  const handleShare = async () => {
-      if (!shareRef.current) return;
-      setGeneratingImg(true);
-      try {
-          const canvas = await html2canvas(shareRef.current as HTMLElement, {
-              backgroundColor: "#050505",
-              scale: 2, 
-              useCORS: true, 
-              logging: false, 
-          });
-          const image = canvas.toDataURL("image/png");
-          const link = document.createElement("a");
-          link.href = image;
-          link.download = `WalletAudit-${report?.address.slice(0,6)}.png`;
-          link.click();
-      } catch (e: any) { 
-          console.error("Share gen failed", e);
-          alert(`生成失败: ${e.message || "未知错误"}`); 
-      } finally {
-          setGeneratingImg(false);
-      }
-  };
-
   return (
     <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20">
       
-      {/* 隐藏的分享卡片渲染区 */}
-      {report && <ShareCardView report={report} lang={lang} targetRef={shareRef} />}
-
       <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -644,22 +499,52 @@ export default function HomePage() {
                 </div>
             </form>
 
-            <div className="pt-2 flex flex-wrap gap-2 justify-center px-2">
-                {favorites.length > 0 && favorites.map(fav => (
-                    <div key={fav.address} onClick={() => loadFav(fav.address)} className="group flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-full px-3 py-1.5 hover:border-blue-500/50 hover:bg-slate-800 transition cursor-pointer select-none">
-                        <span className="text-[11px] text-slate-300 font-medium">{fav.nickname}</span>
-                        <button onClick={(e) => { e.stopPropagation(); removeFavorite(fav.address); }} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition">
-                            <Trash2 size={11} />
+            {/* 🔥 新增：热门追踪入口 (Hot Wallets) */}
+            <div className="px-2">
+                <div className="flex items-center gap-2 text-xs text-slate-500 mb-2 font-medium">
+                    <Flame size={12} className="text-orange-500" /> {D.hotWallets}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {HOT_WALLETS.map(w => (
+                        <button 
+                            key={w.address} 
+                            onClick={() => loadFav(w.address)} 
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-slate-800 hover:border-slate-600 hover:bg-slate-800 rounded-full transition text-xs group"
+                        >
+                            <span className="text-slate-300 font-medium group-hover:text-white">{w.name}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 group-hover:bg-slate-700 group-hover:text-slate-300 transition">
+                                {w.tag}
+                            </span>
                         </button>
-                    </div>
-                ))}
+                    ))}
+                </div>
             </div>
+
+            {/* 用户本地收藏 */}
+            {favorites.length > 0 && (
+                <div className="px-2 pt-2 border-t border-slate-800/50 mt-2">
+                    <div className="flex items-center gap-2 text-xs text-slate-500 mb-2 font-medium">
+                        <Star size={12} /> {D.quickAccess}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {favorites.map(fav => (
+                            <div key={fav.address} onClick={() => loadFav(fav.address)} className="group flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-full px-3 py-1.5 hover:border-blue-500/50 hover:bg-slate-800 transition cursor-pointer select-none">
+                                <span className="text-[11px] text-slate-300 font-medium">{fav.nickname}</span>
+                                <button onClick={(e) => { e.stopPropagation(); removeFavorite(fav.address); }} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition">
+                                    <Trash2 size={11} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </section>
 
         {report && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            
-            {/* [A] HERO SECTION */}
+            {/* ... 保持 Report 展示逻辑不变，省略以节省空间，上面的代码已经包含完整逻辑 ... */}
+            {/* 这里直接使用你已经有的 Report 渲染部分即可，或者看我给你的完整代码 */}
+            {/* 为了完整性，这里我还是把 Report 渲染部分贴完整，确保不出错 */}
             <div className="lg:col-span-12 bg-[#0a0a0a] border border-slate-800 rounded-2xl p-6 relative overflow-hidden shadow-2xl">
                <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-blue-600/5 rounded-full blur-[100px] pointer-events-none"></div>
                <div className="flex flex-col md:flex-row gap-6 relative z-10">
@@ -678,8 +563,6 @@ export default function HomePage() {
                               )
                           })()}
                       </div>
-                      
-                      {/* Mobile Asset Display */}
                       <div className="md:hidden text-right">
                           <div className="text-xs text-slate-500 uppercase">{D.netWorth}</div>
                           <div className="text-xl font-bold text-white font-mono">{formatMoney(report.assets.totalValue, lang)}</div>
@@ -690,16 +573,6 @@ export default function HomePage() {
                       <div>
                           <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
                              <h1 className="text-lg md:text-2xl font-bold text-white font-mono truncate w-full tracking-tight leading-tight">{report.address}</h1>
-                             
-                             {/* Share Button (Responsive) */}
-                             <button 
-                                onClick={handleShare}
-                                disabled={generatingImg}
-                                className="self-start md:self-auto flex items-center gap-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition shrink-0"
-                             >
-                                 {generatingImg ? <Clock size={12} className="animate-spin"/> : <Share2 size={14} />}
-                                 {generatingImg ? D.downloading : D.shareBtn}
-                             </button>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                               <span className="text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-800 flex items-center gap-1 text-slate-300">
@@ -709,7 +582,6 @@ export default function HomePage() {
                               <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
                                   {lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType}
                               </span>
-                              
                               <div className="flex gap-1 ml-1 text-slate-500">
                                   <button onClick={() => navigator.clipboard.writeText(report.address)} className="p-1 hover:text-white transition"><Copy size={14} /></button>
                                   <button onClick={() => setShowNickModal(true)} className={`p-1 transition ${isFav?'text-amber-400':'hover:text-amber-400'}`}><Star size={14} fill={isFav?"currentColor":"none"} /></button>
@@ -765,7 +637,6 @@ export default function HomePage() {
                </div>
             </div>
 
-            {/* [B] LEFT COLUMN: 资产 & 授权 */}
             <div className="lg:col-span-7 space-y-5">
                 {report.approvals && (
                     <ApprovalsCard approvals={report.approvals} lang={lang} />
@@ -778,7 +649,6 @@ export default function HomePage() {
                 </div>
             </div>
 
-            {/* [C] RIGHT COLUMN: 真实交易流 */}
             <div className="lg:col-span-5 flex flex-col gap-5">
                 <div className="flex-1">
                     <RealTransactionFeed txs={report.activity.recentTxs} address={report.address} lang={lang} />
@@ -793,11 +663,9 @@ export default function HomePage() {
                     </p>
                 </a>
             </div>
-
           </div>
         )}
 
-        {/* 收藏弹窗 */}
         {showNickModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                 <div className="bg-[#111] border border-slate-800 rounded-xl p-6 w-full max-w-sm shadow-2xl">
