@@ -202,7 +202,6 @@ function ApprovalsCard({ approvals, lang }: { approvals: NonNullable<Report['app
     const D = DICT[lang];
     const hasRisk = approvals.riskCount > 0;
     
-    // 如果没有数据，或者只有安全数据，稍微收起一点
     if (approvals.items.length === 0) return null;
 
     return (
@@ -221,18 +220,29 @@ function ApprovalsCard({ approvals, lang }: { approvals: NonNullable<Report['app
 
             <div className="space-y-2">
                 {approvals.items.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/40 border border-slate-800/50 text-xs">
-                        <div className="flex flex-col gap-0.5">
-                            <span className="text-slate-300 font-bold">{item.spenderName}</span>
-                            <span className="text-[10px] text-slate-500 font-mono">{item.spender.slice(0, 6)}...{item.spender.slice(-4)}</span>
+                    <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-slate-900/40 border border-slate-800/50 text-xs">
+                        {/* 左侧：代币 -> 授权给谁 */}
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                                <span className="font-bold text-white bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
+                                    {item.token}
+                                </span>
+                                <span className="text-slate-500">➔</span>
+                                <span className={`${item.riskLevel === 'High' ? 'text-red-300' : 'text-slate-300'} font-medium`}>
+                                    {item.spenderName}
+                                </span>
+                            </div>
+                            <span className="text-[10px] text-slate-500 font-mono ml-1">
+                                {item.spender.slice(0, 6)}...{item.spender.slice(-4)}
+                            </span>
                         </div>
                         
-                        <div className="flex items-center gap-4">
-                            <div className="text-right">
+                        {/* 右侧：额度 + 按钮 */}
+                        <div className="flex items-center gap-3">
+                            <div className="text-right hidden sm:block">
                                 <div className={`font-medium ${item.amount === 'Unlimited' ? 'text-amber-400' : 'text-slate-400'}`}>
                                     {item.amount}
                                 </div>
-                                <div className="text-[10px] text-slate-600">{D.amount}</div>
                             </div>
                             
                             <a href={`https://revoke.cash/address/${item.spender}`} target="_blank" className="px-3 py-1.5 rounded bg-slate-800 hover:bg-red-900/30 hover:text-red-400 text-slate-400 border border-slate-700 transition flex items-center gap-1">
