@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import html2canvas from "html2canvas"; // ✅ 引入截图库
+import html2canvas from "html2canvas";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
 } from "recharts";
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
-  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, Share2, Download
+  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, Share2
 } from "lucide-react";
 
 // ==========================================
@@ -206,152 +206,7 @@ function formatEth(wei: string) {
 // 3. 核心功能组件
 // ==========================================
 
-function ApprovalsCard({ approvals, lang }: { approvals: NonNullable<Report['approvals']>, lang: 'cn' | 'en' }) {
-    const D = DICT[lang];
-    const hasRisk = approvals.riskCount > 0;
-    if (approvals.items.length === 0) return null;
-
-    return (
-        <div className={`rounded-xl border p-5 ${hasRisk ? 'bg-red-950/10 border-red-900/30' : 'bg-[#0a0a0a] border-slate-800'}`}>
-            <div className="flex items-center justify-between mb-4">
-                <h3 className={`font-bold text-sm flex items-center gap-2 ${hasRisk ? 'text-red-400' : 'text-slate-200'}`}>
-                    {hasRisk ? <ShieldAlert size={16} /> : <Lock size={16} className="text-emerald-500"/>}
-                    {D.approvalsTitle}
-                </h3>
-                {hasRisk && (
-                    <span className="text-xs bg-red-900/20 text-red-400 px-2 py-0.5 rounded border border-red-900/30 font-medium">
-                        {approvals.riskCount} {D.riskCount}
-                    </span>
-                )}
-            </div>
-            <div className="space-y-2">
-                {approvals.items.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-slate-900/40 border border-slate-800/50 text-xs">
-                        <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-2">
-                                <span className="font-bold text-white bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">{item.token}</span>
-                                <span className="text-slate-500">➔</span>
-                                <span className={`${item.riskLevel === 'High' ? 'text-red-300' : 'text-slate-300'} font-medium`}>{item.spenderName}</span>
-                            </div>
-                            <span className="text-[10px] text-slate-500 font-mono ml-1">{item.spender.slice(0, 6)}...{item.spender.slice(-4)}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <div className="text-right hidden sm:block">
-                                <div className={`font-medium ${item.amount === 'Unlimited' ? 'text-amber-400' : 'text-slate-400'}`}>{item.amount}</div>
-                            </div>
-                            <a href={`https://revoke.cash/address/${item.spender}`} target="_blank" className="px-3 py-1.5 rounded bg-slate-800 hover:bg-red-900/30 hover:text-red-400 text-slate-400 border border-slate-700 transition flex items-center gap-1">
-                                {D.revoke} <ExternalLink size={10} />
-                            </a>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address: string, lang: 'cn' | 'en' }) {
-  const D = DICT[lang];
-  if (!txs || txs.length === 0) return (
-        <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl p-8 flex flex-col items-center justify-center text-slate-500 h-full min-h-[400px]">
-            <Activity size={32} className="opacity-20 mb-2" />
-            <span className="text-xs">{D.noTxs}</span>
-        </div>
-  );
-
-  return (
-    <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl overflow-hidden flex flex-col h-full min-h-[400px]">
-       <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
-          <h3 className="font-bold text-slate-200 text-sm flex items-center gap-2"><Activity size={14} className="text-blue-500" /> {D.recentActivity}</h3>
-       </div>
-       <div className="flex-1 overflow-y-auto custom-scrollbar p-0">
-          {txs.map((tx, idx) => {
-             const isIn = tx.to?.toLowerCase() === address.toLowerCase();
-             const isError = tx.isError === "1";
-             const method = tx.functionName ? tx.functionName.split('(')[0] : (isIn ? 'Receive' : 'Send');
-             const ethVal = Number(tx.value) / 1e18;
-             const isZero = ethVal < 0.000001;
-             return (
-             <div key={idx} className="flex items-center gap-3 p-3 border-b border-slate-800/50 hover:bg-slate-900/40 transition group">
-                <div className={`p-1.5 rounded-full border transition ${
-                    isError ? 'bg-red-900/20 border-red-500/30 text-red-500' :
-                    (method === 'execute' || method === 'executeBatch') ? 'bg-amber-900/20 border-amber-500/30 text-amber-500' :
-                    isIn ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-500' : 
-                    'bg-slate-800 border-slate-700 text-slate-400'
-                }`}>
-                    {isError ? <AlertCircle size={14} /> : (method === 'execute' || method === 'executeBatch') ? <Zap size={14}/> : isIn ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}
-                </div>
-                <div className="flex-1 min-w-0">
-                   <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[11px] font-bold text-slate-300 font-mono truncate max-w-[120px]" title={method}>{method}</span>
-                      <span className="text-[10px] text-slate-500 flex items-center gap-1"><Clock size={10} /> {formatTimeAgo(tx.timestamp * 1000, lang)}</span>
-                   </div>
-                   <div className="text-[10px] text-slate-500 font-mono truncate">{isIn ? `From: ${tx.from.slice(0,6)}...` : `To: ${tx.to?.slice(0,6)}...`}</div>
-                </div>
-                <div className="text-right min-w-[70px]">
-                   <div className={`text-xs font-mono ${isZero ? 'text-slate-600' : 'text-slate-200 font-medium'}`}>{isZero ? 'Interaction' : `${formatEth(tx.value)} ETH`}</div>
-                </div>
-                <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" className="text-slate-600 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition"><ExternalLink size={12} /></a>
-             </div>
-             )
-          })}
-       </div>
-    </div>
-  );
-}
-
-function AssetTable({ assets, lang }: { assets: Report['assets'], lang: 'cn'|'en' }) {
-    const D = DICT[lang];
-    const allAssets = useMemo(() => {
-      const list = [
-        { symbol: "ETH", address: "", amount: assets.eth.amount, value: assets.eth.value, ratio: assets.totalValue > 0 ? assets.eth.value / assets.totalValue : 0 },
-        ...assets.tokens.map(t => ({ symbol: t.symbol, address: t.contractAddress, amount: t.amount, value: t.value, ratio: assets.totalValue > 0 ? t.value / assets.totalValue : 0 }))
-      ];
-      return list.filter(a => a.value > 1).sort((a, b) => b.value - a.value);
-    }, [assets]);
-  
-    return (
-      <div className="w-full space-y-2">
-        <div className="grid grid-cols-12 text-[10px] text-slate-500 uppercase tracking-wider px-2 font-medium">
-          <div className="col-span-4">{D.assetHeader}</div>
-          <div className="col-span-3 text-right">{D.priceHeader}</div>
-          <div className="col-span-3 text-right">{D.valueHeader}</div>
-          <div className="col-span-2 text-right">{D.allocHeader}</div>
-        </div>
-        <div className="space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
-          {allAssets.map((item, idx) => (
-            <div key={idx} className="grid grid-cols-12 items-center p-2 rounded-lg bg-slate-900/30 border border-slate-800/50 hover:bg-slate-800/60 transition">
-              <div className="col-span-4 flex items-center gap-2">
-                 <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-300 border border-slate-700 shrink-0">
-                    {item.symbol ? item.symbol[0] : '?'}
-                 </div>
-                 <div className="min-w-0">
-                    <div className="font-bold text-slate-200 text-sm truncate">{item.symbol}</div>
-                 </div>
-              </div>
-              <div className="col-span-3 text-right">
-                 <div className="text-[11px] text-slate-400 font-mono">{item.amount < 0.001 ? '<0.001' : (item.amount > 10000 ? (item.amount/1000).toFixed(1)+'k' : item.amount.toFixed(3))}</div>
-              </div>
-              <div className="col-span-3 text-right">
-                 <div className="text-sm font-medium text-slate-200 font-mono">{formatMoney(item.value, lang)}</div>
-              </div>
-              <div className="col-span-2 flex items-center justify-end gap-2">
-                 <div className="text-[11px] text-slate-400 font-mono w-8 text-right">{(item.ratio * 100).toFixed(0)}%</div>
-                 <div className="w-1.5 h-6 bg-slate-800 rounded-full overflow-hidden relative">
-                    <div className="absolute bottom-0 left-0 w-full bg-blue-500" style={{ height: `${item.ratio * 100}%` }}></div>
-                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-}
-
-// ==========================================
-// 4. 分享卡片组件 (Hidden)
-// ==========================================
-// 这是一个隐藏的 DOM 结构，专门用来生成图片
+// 隐藏的分享卡片渲染区 (已修复：透明显示而非移出屏幕)
 function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'|'en', targetRef: any }) {
     const D = DICT[lang];
     const score = report.risk.score;
@@ -360,7 +215,14 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
     const borderColor = isSafe ? 'border-emerald-500' : score <= 50 ? 'border-red-500' : 'border-amber-500';
 
     return (
-        <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
+        <div style={{ 
+            position: 'fixed', 
+            top: 0, 
+            left: 0, 
+            zIndex: -100, 
+            opacity: 0, 
+            pointerEvents: 'none' 
+        }}>
             <div ref={targetRef} className="w-[600px] bg-[#050505] p-8 text-slate-100 font-sans border-2 border-slate-800 relative overflow-hidden">
                 {/* 装饰背景 */}
                 <div className={`absolute top-0 right-0 w-[400px] h-[400px] rounded-full blur-[120px] opacity-20 pointer-events-none ${isSafe ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
@@ -407,12 +269,185 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
                         <span className="text-sm font-bold text-blue-400">walletaudit.me</span>
                     </div>
                     <div className="bg-white p-1 rounded">
-                       {/* 这里用一个简单的方块模拟二维码占位 */}
                        <div className="w-12 h-12 bg-black flex items-center justify-center text-[8px] text-white text-center leading-tight">SCAN<br/>ME</div>
                     </div>
                 </div>
             </div>
         </div>
+    )
+}
+
+function ApprovalsCard({ approvals, lang }: { approvals: NonNullable<Report['approvals']>, lang: 'cn' | 'en' }) {
+    const D = DICT[lang];
+    const hasRisk = approvals.riskCount > 0;
+    
+    if (approvals.items.length === 0) return null;
+
+    return (
+        <div className={`rounded-xl border p-5 ${hasRisk ? 'bg-red-950/10 border-red-900/30' : 'bg-[#0a0a0a] border-slate-800'}`}>
+            <div className="flex items-center justify-between mb-4">
+                <h3 className={`font-bold text-sm flex items-center gap-2 ${hasRisk ? 'text-red-400' : 'text-slate-200'}`}>
+                    {hasRisk ? <ShieldAlert size={16} /> : <Lock size={16} className="text-emerald-500"/>}
+                    {D.approvalsTitle}
+                </h3>
+                {hasRisk && (
+                    <span className="text-xs bg-red-900/20 text-red-400 px-2 py-0.5 rounded border border-red-900/30 font-medium">
+                        {approvals.riskCount} {D.riskCount}
+                    </span>
+                )}
+            </div>
+
+            <div className="space-y-2">
+                {approvals.items.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-slate-900/40 border border-slate-800/50 text-xs">
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                                <span className="font-bold text-white bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
+                                    {item.token}
+                                </span>
+                                <span className="text-slate-500">➔</span>
+                                <span className={`${item.riskLevel === 'High' ? 'text-red-300' : 'text-slate-300'} font-medium`}>
+                                    {item.spenderName}
+                                </span>
+                            </div>
+                            <span className="text-[10px] text-slate-500 font-mono ml-1">
+                                {item.spender.slice(0, 6)}...{item.spender.slice(-4)}
+                            </span>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                            <div className="text-right hidden sm:block">
+                                <div className={`font-medium ${item.amount === 'Unlimited' ? 'text-amber-400' : 'text-slate-400'}`}>
+                                    {item.amount}
+                                </div>
+                            </div>
+                            
+                            <a href={`https://revoke.cash/address/${item.spender}`} target="_blank" className="px-3 py-1.5 rounded bg-slate-800 hover:bg-red-900/30 hover:text-red-400 text-slate-400 border border-slate-700 transition flex items-center gap-1">
+                                {D.revoke} <ExternalLink size={10} />
+                            </a>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address: string, lang: 'cn' | 'en' }) {
+  const D = DICT[lang];
+
+  if (!txs || txs.length === 0) {
+      return (
+        <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl p-8 flex flex-col items-center justify-center text-slate-500 h-full min-h-[400px]">
+            <Activity size={32} className="opacity-20 mb-2" />
+            <span className="text-xs">{D.noTxs}</span>
+        </div>
+      )
+  }
+
+  return (
+    <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl overflow-hidden flex flex-col h-full min-h-[400px]">
+       <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
+          <h3 className="font-bold text-slate-200 text-sm flex items-center gap-2">
+             <Activity size={14} className="text-blue-500" /> {D.recentActivity}
+          </h3>
+       </div>
+       <div className="flex-1 overflow-y-auto custom-scrollbar p-0">
+          {txs.map((tx, idx) => {
+             const isIn = tx.to?.toLowerCase() === address.toLowerCase();
+             const isError = tx.isError === "1";
+             const method = tx.functionName ? tx.functionName.split('(')[0] : (isIn ? 'Receive' : 'Send');
+             
+             const ethVal = Number(tx.value) / 1e18;
+             const isZero = ethVal < 0.000001;
+
+             return (
+             <div key={idx} className="flex items-center gap-3 p-3 border-b border-slate-800/50 hover:bg-slate-900/40 transition group">
+                <div className={`p-1.5 rounded-full border transition ${
+                    isError ? 'bg-red-900/20 border-red-500/30 text-red-500' :
+                    (method === 'execute' || method === 'executeBatch') ? 'bg-amber-900/20 border-amber-500/30 text-amber-500' :
+                    isIn ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-500' : 
+                    'bg-slate-800 border-slate-700 text-slate-400'
+                }`}>
+                    {isError ? <AlertCircle size={14} /> : (method === 'execute' || method === 'executeBatch') ? <Zap size={14}/> : isIn ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}
+                </div>
+                
+                <div className="flex-1 min-w-0">
+                   <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-[11px] font-bold text-slate-300 font-mono truncate max-w-[120px]" title={method}>
+                         {method}
+                      </span>
+                      <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                         <Clock size={10} /> {formatTimeAgo(tx.timestamp * 1000, lang)}
+                      </span>
+                   </div>
+                   <div className="text-[10px] text-slate-500 font-mono truncate">
+                      {isIn ? `From: ${tx.from.slice(0,6)}...` : `To: ${tx.to?.slice(0,6)}...`}
+                   </div>
+                </div>
+
+                <div className="text-right min-w-[70px]">
+                   <div className={`text-xs font-mono ${isZero ? 'text-slate-600' : 'text-slate-200 font-medium'}`}>
+                      {isZero ? 'Interaction' : `${formatEth(tx.value)} ETH`}
+                   </div>
+                </div>
+                
+                <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" className="text-slate-600 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition">
+                    <ExternalLink size={12} />
+                </a>
+             </div>
+             )
+          })}
+       </div>
+    </div>
+  );
+}
+
+function AssetTable({ assets, lang }: { assets: Report['assets'], lang: 'cn'|'en' }) {
+    const D = DICT[lang];
+    const allAssets = useMemo(() => {
+      const list = [
+        { symbol: "ETH", address: "", amount: assets.eth.amount, value: assets.eth.value, ratio: assets.totalValue > 0 ? assets.eth.value / assets.totalValue : 0 },
+        ...assets.tokens.map(t => ({ symbol: t.symbol, address: t.contractAddress, amount: t.amount, value: t.value, ratio: assets.totalValue > 0 ? t.value / assets.totalValue : 0 }))
+      ];
+      return list.filter(a => a.value > 1).sort((a, b) => b.value - a.value);
+    }, [assets]);
+  
+    return (
+      <div className="w-full space-y-2">
+        <div className="grid grid-cols-12 text-[10px] text-slate-500 uppercase tracking-wider px-2 font-medium">
+          <div className="col-span-4">{D.assetHeader}</div>
+          <div className="col-span-3 text-right">{D.priceHeader}</div>
+          <div className="col-span-3 text-right">{D.valueHeader}</div>
+          <div className="col-span-2 text-right">{D.allocHeader}</div>
+        </div>
+        <div className="space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
+          {allAssets.map((item: any, idx: number) => (
+            <div key={idx} className="grid grid-cols-12 items-center p-2 rounded-lg bg-slate-900/30 border border-slate-800/50 hover:bg-slate-800/60 transition">
+              <div className="col-span-4 flex items-center gap-2">
+                 <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-300 border border-slate-700 shrink-0">
+                    {item.symbol ? item.symbol[0] : '?'}
+                 </div>
+                 <div className="min-w-0">
+                    <div className="font-bold text-slate-200 text-sm truncate">{item.symbol}</div>
+                 </div>
+              </div>
+              <div className="col-span-3 text-right">
+                 <div className="text-[11px] text-slate-400 font-mono">{item.amount < 0.001 ? '<0.001' : (item.amount > 10000 ? (item.amount/1000).toFixed(1)+'k' : item.amount.toFixed(3))}</div>
+              </div>
+              <div className="col-span-3 text-right">
+                 <div className="text-sm font-medium text-slate-200 font-mono">{formatMoney(item.value, lang)}</div>
+              </div>
+              <div className="col-span-2 flex items-center justify-end gap-2">
+                 <div className="text-[11px] text-slate-400 font-mono w-8 text-right">{(item.ratio * 100).toFixed(0)}%</div>
+                 <div className="w-1.5 h-6 bg-slate-800 rounded-full overflow-hidden relative">
+                    <div className="absolute bottom-0 left-0 w-full bg-blue-500" style={{ height: `${item.ratio * 100}%` }}></div>
+                 </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     )
 }
 
@@ -497,7 +532,7 @@ export default function HomePage() {
       const { assets, identity, risk } = report;
       const totalVal = formatMoney(assets.totalValue, lang);
       const ageDate = identity.createdAt ? new Date(identity.createdAt).getFullYear() : null;
-      // ✅ 核心资产判断修复
+      // ✅ 核心资产判断逻辑
       const ethVal = assets.eth.value;
       const topToken = assets.tokens.length > 0 ? assets.tokens[0] : null;
       const topAsset = (topToken && topToken.value > ethVal) ? topToken.symbol : "ETH";
@@ -525,23 +560,24 @@ export default function HomePage() {
       return text;
   };
 
-  // 生成并下载图片
   const handleShare = async () => {
       if (!shareRef.current) return;
       setGeneratingImg(true);
       try {
-          const canvas = await html2canvas(shareRef.current, {
+          const canvas = await html2canvas(shareRef.current as HTMLElement, {
               backgroundColor: "#050505",
-              scale: 2, // 高清
+              scale: 2, 
+              useCORS: true, 
+              logging: false, 
           });
           const image = canvas.toDataURL("image/png");
           const link = document.createElement("a");
           link.href = image;
           link.download = `WalletAudit-${report?.address.slice(0,6)}.png`;
           link.click();
-      } catch (e) {
+      } catch (e: any) { 
           console.error("Share gen failed", e);
-          alert("Failed to generate image");
+          alert(`生成失败: ${e.message || "未知错误"}`); 
       } finally {
           setGeneratingImg(false);
       }
@@ -636,7 +672,7 @@ export default function HomePage() {
                       <div>
                           <div className="flex items-center justify-between mb-2">
                              <h1 className="text-xl md:text-2xl font-bold text-white font-mono break-all tracking-tight">{report.address}</h1>
-                             {/* 分享按钮 (New) */}
+                             {/* 分享按钮 */}
                              <button 
                                 onClick={handleShare}
                                 disabled={generatingImg}
@@ -682,29 +718,29 @@ export default function HomePage() {
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
                             <Zap size={14} className="text-yellow-500" />
                             <div>
-                               <div className="text-[10px] text-slate-500 uppercase">{D.metricTx}</div>
-                               <div className="text-sm font-mono font-bold">{report.activity.txCount}</div>
+                                <div className="text-[10px] text-slate-500 uppercase">{D.metricTx}</div>
+                                <div className="text-sm font-mono font-bold">{report.activity.txCount}</div>
                             </div>
                          </div>
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
                             <Calendar size={14} className="text-blue-500" />
                             <div>
-                               <div className="text-[10px] text-slate-500 uppercase">{D.metricDays}</div>
-                               <div className="text-sm font-mono font-bold">{report.activity.activeDays}</div>
+                                <div className="text-[10px] text-slate-500 uppercase">{D.metricDays}</div>
+                                <div className="text-sm font-mono font-bold">{report.activity.activeDays}</div>
                             </div>
                          </div>
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
                             <Flame size={14} className="text-orange-500" />
                             <div>
-                               <div className="text-[10px] text-slate-500 uppercase">{D.metricGas}</div>
-                               <div className="text-sm font-mono font-bold">{formatMoney(report.gas.totalGasUsd, lang)}</div>
+                                <div className="text-[10px] text-slate-500 uppercase">{D.metricGas}</div>
+                                <div className="text-sm font-mono font-bold">{formatMoney(report.gas.totalGasUsd, lang)}</div>
                             </div>
                          </div>
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
                             <Layers size={14} className="text-purple-500" />
                             <div>
-                               <div className="text-[10px] text-slate-500 uppercase">{D.metricInteract}</div>
-                               <div className="text-sm font-mono font-bold">{report.activity.contractsInteracted}</div>
+                                <div className="text-[10px] text-slate-500 uppercase">{D.metricInteract}</div>
+                                <div className="text-sm font-mono font-bold">{report.activity.contractsInteracted}</div>
                             </div>
                          </div>
                       </div>
