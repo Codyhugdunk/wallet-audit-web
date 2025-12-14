@@ -21,7 +21,7 @@ export interface IdentityModule {
   createdAt: number | null;
 }
 
-export interface AssetsModule {
+export type AssetModule = {
   eth: { amount: number; value: number };
   tokens: TokenBalance[];
   totalValue: number;
@@ -29,11 +29,9 @@ export interface AssetsModule {
   otherTokens: TokenBalance[];
   priceWarning: string | null;
 }
-// ✅ 关键修复：添加别名，防止代码里引用 AssetModule 报错
-export type AssetModule = AssetsModule;
 
 export interface ActivityModule {
-  txCount: number | string; // 支持 "20+"
+  txCount: number | string;
   activeDays: number;
   contractsInteracted: number;
   topContracts: string[];
@@ -45,7 +43,7 @@ export interface GasModule {
   txCount: number;
   totalGasEth: number;
   totalGasUsd: number;
-  topTxs: { hash: string; gasEth: number; toDisplay?: string }[]; // ✅ 增加 toDisplay
+  topTxs: { hash: string; gasEth: number; toDisplay?: string }[];
 }
 
 export interface RiskModule {
@@ -55,10 +53,10 @@ export interface RiskModule {
   stableRatio: number;
   memeRatio: number;
   otherRatio: number;
-  txCount: number | string; // ✅ 兼容 ActivityModule 的类型
+  txCount: number | string;
   personaType: string;
   personaTags: string[];
-  metrics?: { // ✅ 增加 metrics 字段
+  metrics?: {
     hhi: number;
     degenIndex: number;
     wealthScore: number;
@@ -68,14 +66,28 @@ export interface RiskModule {
 export interface ShareModule {
   shortAddr: string;
   totalValue: number;
-  riskScore: number; // ✅ 新增字段
-  riskLevel: string; // ✅ 新增字段
-  // 移除旧字段以匹配新的实现
-  // ethAmount, ethPrice, timestamp... 如果你的代码不再用，就删掉
+  riskScore: number;
+  riskLevel: string;
 }
 
 export interface SummaryModule {
   text: string;
+}
+
+// ✅ 新增：授权模块定义
+export interface ApprovalItem {
+  token: string;
+  spender: string;
+  spenderName: string; // 如 "Uniswap V2" 或 "Unknown Contract"
+  amount: string;      // "Unlimited" 或 具体数字
+  riskLevel: "High" | "Low"; // 高危还是安全
+  lastUpdated: number; // 时间戳
+  txHash: string;
+}
+
+export interface ApprovalsModule {
+  riskCount: number; // 高危授权数量
+  items: ApprovalItem[];
 }
 
 export interface ReportData {
@@ -83,10 +95,11 @@ export interface ReportData {
   address: string;
   identity: IdentityModule;
   summary: SummaryModule;
-  assets: AssetsModule;
+  assets: AssetModule;
   activity: ActivityModule;
   gas: GasModule;
   risk: RiskModule;
+  approvals: ApprovalsModule; // ✅ 注册模块
   share: ShareModule;
   meta: {
     version: string;

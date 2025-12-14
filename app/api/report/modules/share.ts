@@ -1,5 +1,5 @@
 // app/api/report/modules/share.ts
-import { AssetsModule, ShareModule, RiskModule } from "./types";
+import { AssetModule, ShareModule, RiskModule } from "./types";
 
 function shortenAddress(address: string): string {
   if (!address.startsWith("0x") || address.length <= 10) return address;
@@ -8,7 +8,7 @@ function shortenAddress(address: string): string {
 
 export function buildShareModule(
   address: string,
-  assets: AssetsModule,
+  assets: AssetModule, // ✅ 修复：使用 AssetModule
   risk: RiskModule
 ): ShareModule {
   return {
@@ -17,4 +17,12 @@ export function buildShareModule(
     riskScore: risk.score,
     riskLevel: risk.level,
   };
+}
+
+export function buildShareSnapshot(input: {
+  address: string;
+  assets: AssetModule; // ✅ 修复：使用 AssetModule
+  risk: RiskModule;
+}): ShareModule {
+  return buildShareModule(input.address, input.assets, input.risk);
 }

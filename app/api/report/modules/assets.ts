@@ -3,11 +3,10 @@ import { fetchJsonWithTimeout } from "../utils/fetch";
 import { formatUnits, hexToBigInt, safeFloat } from "../utils/hex";
 import { cached } from "../utils/cache";
 import { getEthPrice, getTokenPrices } from "./prices";
-import { AssetsModule, TokenBalance } from "./types"; // 使用 AssetsModule
+import { AssetModule, TokenBalance } from "./types"; // ✅ 修复：引用 AssetModule
 
 const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL!;
 
-// ... (省略中间常数定义，STABLE_SYMBOLS 等保持不变) ...
 const STABLE_SYMBOLS = new Set(["USDT", "USDC", "DAI", "USDE", "USDS", "FDUSD", "TUSD", "USDP", "BUSD", "FRAX", "LUSD", "GUSD", "PYUSD", "MIM", "ALUSD", "DOLA"]);
 const MAJOR_SYMBOLS = new Set(["WETH", "WBTC", "CBETH", "RETH", "STETH", "EZETH", "UNI", "AAVE", "LDO", "LINK", "MKR", "COMP", "SNX", "CRV", "RPL", "FXS", "ARB", "OP", "MATIC", "POL", "IMX", "MNT", "STRK", "ZK", "RNDR", "FET", "WLD", "TAO", "ENA", "PENDLE", "ONDO"]);
 const MEME_KEYWORDS = ["PEPE", "DOGE", "SHIB", "FLOKI", "BONK", "WIF", "MOG", "TURBO", "SPX", "LADYS", "MEME", "TRUMP", "MAGA", "BOME", "SLERF", "NEIRO", "PENGU", "POPCAT", "BRETT", "HarryPotter", "SNEK"];
@@ -56,7 +55,7 @@ async function fetchTokenMeta(contractAddress: string): Promise<TokenMeta> {
   });
 }
 
-export async function buildAssetsModule(address: string): Promise<AssetsModule> {
+export async function buildAssetsModule(address: string): Promise<AssetModule> { // ✅ 修复类型
   const [ethAmount, rawTokens, ethPrice] = await Promise.all([getEthBalance(address), getRawTokenBalances(address), getEthPrice()]);
   const tokenAddresses = rawTokens.map((t) => t.contractAddress);
   const uniqueAddresses = Array.from(new Set(tokenAddresses.map((a) => a.toLowerCase())));
@@ -89,6 +88,6 @@ export async function buildAssetsModule(address: string): Promise<AssetsModule> 
   return { eth: { amount: ethAmount, value: ethValue }, tokens, totalValue, allocation, otherTokens, priceWarning: null };
 }
 
-export async function getAssets(address: string): Promise<AssetsModule> {
+export async function getAssets(address: string): Promise<AssetModule> { // ✅ 修复类型
   return buildAssetsModule(address);
 }

@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
-  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers
+  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock
 } from "lucide-react";
 
 // ==========================================
@@ -28,14 +28,14 @@ type RecentTx = {
   decimal?: string;
 };
 
-// PnL 结构定义 (预留，等待后端实现)
-type PnLAnalysis = {
-  totalProfitUsd: number;
-  totalRoi: number;
-  winRate: number;
-  realizedProfit: number;
-  unrealizedProfit: number;
-  bestTrade: { symbol: string; profit: number; roi: number };
+type ApprovalItem = {
+  token: string;
+  spender: string;
+  spenderName: string;
+  amount: string;
+  riskLevel: "High" | "Low";
+  lastUpdated: number;
+  txHash: string;
 };
 
 type Report = {
@@ -50,10 +50,10 @@ type Report = {
     topContracts: string[]; 
     weeklyHistogram: any[];
     recentTxs: RecentTx[]; 
-    pnl?: PnLAnalysis; // 可选字段
   };
   gas: { txCount: number; totalGasEth: number; totalGasUsd: number; topTxs: { hash: string; gasEth: number }[] };
   risk: { level: string; score: number; comment: string; stableRatio: number; memeRatio: number; otherRatio: number; txCount: number | string; personaType: string; personaTags: string[] };
+  approvals?: { riskCount: number; items: ApprovalItem[] }; // ✅ 新增
   meta: { version: string; generatedAt: number; };
 };
 
@@ -107,7 +107,14 @@ const DICT = {
     metricDays: "活跃天数",
     metricGas: "Gas 消耗",
     metricInteract: "交互对象",
-    briefing: "智能摘要"
+    briefing: "智能摘要",
+    approvalsTitle: "风险授权检测",
+    riskCount: "个高危授权",
+    safe: "安全",
+    revoke: "取消授权",
+    spender: "授权对象",
+    amount: "额度",
+    unknownContract: "未知合约"
   },
   en: {
     title: "WalletAudit",
@@ -140,7 +147,14 @@ const DICT = {
     metricDays: "Active Days",
     metricGas: "Gas Spent",
     metricInteract: "Interactions",
-    briefing: "Smart Briefing"
+    briefing: "Smart Briefing",
+    approvalsTitle: "Risk Approvals",
+    riskCount: "Risk Items",
+    safe: "Safe",
+    revoke: "Revoke",
+    spender: "Spender",
+    amount: "Amount",
+    unknownContract: "Unknown"
   }
 };
 
@@ -183,7 +197,55 @@ function formatEth(wei: string) {
 // 3. 核心功能组件
 // ==========================================
 
-// [组件] 真实交易流
+// [组件] 授权风险卡 (New!)
+function ApprovalsCard({ approvals, lang }: { approvals: NonNullable<Report['approvals']>, lang: 'cn' | 'en' }) {
+    const D = DICT[lang];
+    const hasRisk = approvals.riskCount > 0;
+    
+    // 如果没有数据，或者只有安全数据，稍微收起一点
+    if (approvals.items.length === 0) return null;
+
+    return (
+        <div className={`rounded-xl border p-5 ${hasRisk ? 'bg-red-950/10 border-red-900/30' : 'bg-[#0a0a0a] border-slate-800'}`}>
+            <div className="flex items-center justify-between mb-4">
+                <h3 className={`font-bold text-sm flex items-center gap-2 ${hasRisk ? 'text-red-400' : 'text-slate-200'}`}>
+                    {hasRisk ? <ShieldAlert size={16} /> : <Lock size={16} className="text-emerald-500"/>}
+                    {D.approvalsTitle}
+                </h3>
+                {hasRisk && (
+                    <span className="text-xs bg-red-900/20 text-red-400 px-2 py-0.5 rounded border border-red-900/30 font-medium">
+                        {approvals.riskCount} {D.riskCount}
+                    </span>
+                )}
+            </div>
+
+            <div className="space-y-2">
+                {approvals.items.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/40 border border-slate-800/50 text-xs">
+                        <div className="flex flex-col gap-0.5">
+                            <span className="text-slate-300 font-bold">{item.spenderName}</span>
+                            <span className="text-[10px] text-slate-500 font-mono">{item.spender.slice(0, 6)}...{item.spender.slice(-4)}</span>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                            <div className="text-right">
+                                <div className={`font-medium ${item.amount === 'Unlimited' ? 'text-amber-400' : 'text-slate-400'}`}>
+                                    {item.amount}
+                                </div>
+                                <div className="text-[10px] text-slate-600">{D.amount}</div>
+                            </div>
+                            
+                            <a href={`https://revoke.cash/address/${item.spender}`} target="_blank" className="px-3 py-1.5 rounded bg-slate-800 hover:bg-red-900/30 hover:text-red-400 text-slate-400 border border-slate-700 transition flex items-center gap-1">
+                                {D.revoke} <ExternalLink size={10} />
+                            </a>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address: string, lang: 'cn' | 'en' }) {
   const D = DICT[lang];
 
@@ -209,7 +271,6 @@ function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address:
              const isError = tx.isError === "1";
              const method = tx.functionName ? tx.functionName.split('(')[0] : (isIn ? 'Receive' : 'Send');
              
-             // 0值判断逻辑
              const ethVal = Number(tx.value) / 1e18;
              const isZero = ethVal < 0.000001;
 
@@ -255,6 +316,7 @@ function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address:
     </div>
   );
 }
+
 function AssetTable({ assets, lang }: { assets: Report['assets'], lang: 'cn'|'en' }) {
     const D = DICT[lang];
     const allAssets = useMemo(() => {
@@ -262,7 +324,6 @@ function AssetTable({ assets, lang }: { assets: Report['assets'], lang: 'cn'|'en
         { symbol: "ETH", address: "", amount: assets.eth.amount, value: assets.eth.value, ratio: assets.totalValue > 0 ? assets.eth.value / assets.totalValue : 0 },
         ...assets.tokens.map(t => ({ symbol: t.symbol, address: t.contractAddress, amount: t.amount, value: t.value, ratio: assets.totalValue > 0 ? t.value / assets.totalValue : 0 }))
       ];
-      // 过滤掉 <$1 的垃圾资产，让界面更清爽 (用户反馈：资产列表太乱)
       return list.filter(a => a.value > 1).sort((a, b) => b.value - a.value);
     }, [assets]);
   
@@ -375,10 +436,9 @@ export default function HomePage() {
       return { color: 'text-rose-500', border: 'border-rose-500/30', bg: 'bg-rose-500/10' };
   };
 
-  // 动态生成文案逻辑 (Merge 到主组件)
   const getSummaryText = () => {
       if (!report) return "";
-      const { assets, identity, risk, activity } = report;
+      const { assets, identity, risk } = report;
       const totalVal = formatMoney(assets.totalValue, lang);
       const ageDate = identity.createdAt ? new Date(identity.createdAt).getFullYear() : null;
       const topAsset = assets.tokens.length > 0 ? assets.tokens[0].symbol : "ETH";
@@ -389,13 +449,13 @@ export default function HomePage() {
           if (ageDate) text += ` 账户创建于 ${ageDate} 年，`;
           text += `属于「${PERSONA_MAP[risk.personaType] || risk.personaType}」。`;
           if (risk.score < 50) text += ` 系统检测到较高的资产集中度或异常交互行为，请注意风险。`;
-          else text += ` 资产结构相对稳健，未发现明显的高危授权或貔貅资产。`;
+          else text += ` 资产结构相对稳健。`;
       } else {
           text += `Managing approx ${totalVal}, mainly allocated in ${topAsset}. `;
           if (ageDate) text += `Created in ${ageDate}, `;
           text += `identified as "${risk.personaType}". `;
-          if (risk.score < 50) text += ` High concentration or unusual activity detected. Exercise caution.`;
-          else text += ` The portfolio structure appears stable with no major red flags.`;
+          if (risk.score < 50) text += ` High concentration or unusual activity detected.`;
+          else text += ` The portfolio structure appears stable.`;
       }
       return text;
   };
@@ -403,7 +463,6 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20">
       
-      {/* 1. Navbar */}
       <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -423,7 +482,6 @@ export default function HomePage() {
 
       <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
         
-        {/* 2. 搜索 & 快速访问 */}
         <section className="max-w-4xl mx-auto space-y-4">
             <div className="text-center mb-8">
                 <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">
@@ -465,29 +523,26 @@ export default function HomePage() {
         {report && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
             
-            {/* [A] HERO SECTION (合并了摘要与核心指标) */}
+            {/* [A] HERO SECTION */}
             <div className="lg:col-span-12 bg-[#0a0a0a] border border-slate-800 rounded-2xl p-6 relative overflow-hidden shadow-2xl">
                <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-blue-600/5 rounded-full blur-[100px] pointer-events-none"></div>
-               
                <div className="flex flex-col md:flex-row gap-6 relative z-10">
-                  {/* 左侧：评分 */}
-                  {(() => {
-                      const s = getScoreStyle(report.risk.score);
-                      return (
-                       <div className={`flex flex-col items-center justify-center w-24 h-24 md:w-28 md:h-28 rounded-xl border ${s.bg} ${s.border} ${s.color} shrink-0`}>
-    <div className="flex items-baseline">
-        <span className="text-3xl md:text-4xl font-bold font-mono">{report.risk.score}</span>
-        {/* ✅ 新增：显示分母 /100 */}
-        <span className="text-sm opacity-60 font-mono ml-0.5">/100</span>
-    </div>
-    <span className="text-[10px] opacity-80 uppercase mt-1 font-bold text-center leading-tight px-1">{D.riskScore}</span>
-</div>
-                      )
-                  })()}
+                  <div className="flex gap-5 shrink-0">
+                      {(() => {
+                          const s = getScoreStyle(report.risk.score);
+                          return (
+                            <div className={`flex flex-col items-center justify-center w-24 h-24 md:w-28 md:h-28 rounded-xl border ${s.bg} ${s.border} ${s.color} shrink-0`}>
+                                <div className="flex items-baseline">
+                                    <span className="text-3xl md:text-4xl font-bold font-mono">{report.risk.score}</span>
+                                    <span className="text-sm opacity-60 font-mono ml-0.5">/100</span>
+                                </div>
+                                <span className="text-[10px] opacity-80 uppercase mt-1 font-bold text-center leading-tight px-1">{D.riskScore}</span>
+                            </div>
+                          )
+                      })()}
+                  </div>
 
-                  {/* 中间：信息流 + 摘要 + 指标 */}
                   <div className="flex-1 space-y-4">
-                      {/* 上：地址与标签 */}
                       <div>
                           <div className="flex items-center justify-between mb-2">
                              <h1 className="text-xl md:text-2xl font-bold text-white font-mono break-all tracking-tight">{report.address}</h1>
@@ -512,13 +567,11 @@ export default function HomePage() {
                           </div>
                       </div>
 
-                      {/* 中：合并后的智能摘要 (AI Briefing) */}
                       <div className="p-3 bg-slate-900/40 rounded-lg border border-slate-800/50 text-xs md:text-sm text-slate-300 leading-relaxed font-sans">
                          <span className="text-blue-400 font-bold mr-2">⚡️ Insight:</span>
                          {getSummaryText()}
                       </div>
 
-                      {/* 下：核心指标栏 (Metrics Bar) */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
                             <Zap size={14} className="text-yellow-500" />
@@ -551,7 +604,6 @@ export default function HomePage() {
                       </div>
                   </div>
 
-                  {/* 右侧：总资产 (仅桌面端显示，移动端在标题旁) */}
                   <div className="hidden md:block text-right min-w-[120px]">
                       <div className="text-[11px] text-slate-500 uppercase tracking-widest mb-1">{D.netWorth}</div>
                       <div className="text-3xl font-bold text-white font-mono tracking-tight">{formatMoney(report.assets.totalValue, lang)}</div>
@@ -562,8 +614,14 @@ export default function HomePage() {
                </div>
             </div>
 
-            {/* [B] LEFT COLUMN: 资产 */}
+            {/* [B] LEFT COLUMN: 资产 & 授权 */}
             <div className="lg:col-span-7 space-y-5">
+                {/* 1. 风险授权卡 (New!) */}
+                {report.approvals && (
+                    <ApprovalsCard approvals={report.approvals} lang={lang} />
+                )}
+
+                {/* 2. 资产列表 */}
                 <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl p-5">
                     <h3 className="font-bold text-slate-200 text-sm mb-4 flex items-center gap-2">
                         <Wallet size={16} className="text-blue-500" /> {D.assetsTitle}

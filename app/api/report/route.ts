@@ -1,103 +1,78 @@
 // app/api/report/route.ts
-// ✅ WalletAudit Pro - Main API Route
-// 已适配最新的模块接口 (Risk v2, Assets v2, Share v2)
-
-import { NextRequest, NextResponse } from "next/server";
-
+import { NextResponse } from "next/server";
 import { buildIdentityModule } from "./modules/identity";
 import { buildAssetsModule } from "./modules/assets";
 import { buildActivityModule } from "./modules/activity";
 import { buildGasModule } from "./modules/gas";
 import { buildRiskModule } from "./modules/risk";
-import { buildSummaryModule } from "./modules/summary";
 import { buildShareModule } from "./modules/share";
+import { buildSummaryModule } from "./modules/summary";
+import { buildApprovalsModule } from "./modules/approvals"; // ✅ 新增：引入授权模块
+import type { ReportData } from "./modules/types";
 
-export const runtime = "nodejs";
+// 强制动态模式，防止 Vercel 缓存过久导致数据不刷新
 export const dynamic = "force-dynamic";
 
-function isEthAddress(addr: string): boolean {
-  return /^0x[a-fA-F0-9]{40}$/.test(addr);
-}
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const address = searchParams.get("address");
 
-export async function GET(req: NextRequest) {
+  // 1. 基础校验
+  if (!address || !address.startsWith("0x") || address.length !== 42) {
+    return NextResponse.json(
+      { error: "Invalid Ethereum address format" },
+      { status: 400 }
+    );
+  }
+
   try {
-    const { searchParams } = new URL(req.url);
-    const addressRaw = (searchParams.get("address") || "").trim();
-    const address = addressRaw.toLowerCase();
+    const cleanAddress = address.toLowerCase();
 
-    if (!isEthAddress(address)) {
-      return NextResponse.json(
-        { error: "请输入合法的以太坊地址（0x 开头，40 位 hex）" },
-        { status: 400 }
-      );
-    }
-
-    const generatedAt = Date.now();
-
-    // 1. 并发获取基础数据模块
-    // 注意：Risk 和 Summary 依赖 Assets 和 Activity，所以必须先等它们算完
-    const [identity, assets, activity, gas] = await Promise.all([
-      buildIdentityModule(address),
-      buildAssetsModule(address),
-      buildActivityModule(address),
-      buildGasModule(address),
+    // 2. 并行执行所有独立的数据获取模块 (速度最快)
+    // 我们把 approvals 加入到这个并发队列里
+    const [identity, assets, activity, gas, approvals] = await Promise.all([
+      buildIdentityModule(cleanAddress),
+      buildAssetsModule(cleanAddress),
+      buildActivityModule(cleanAddress),
+      buildGasModule(cleanAddress),
+      buildApprovalsModule(cleanAddress), // ✅ 新增：并行获取授权数据
     ]);
 
-    // 2. 同步计算高级分析模块
-    // Risk 模块现在包含了高级金融算法 (HHI, Degen Index)
+    // 3. 执行依赖数据的模块
+    // Risk 模块依赖 Assets 和 Activity 的结果
     const risk = buildRiskModule(assets, activity);
-    
-    // Summary 模块生成自然语言总结
+
+    // Summary 模块依赖前面所有的结果
     const summary = buildSummaryModule(identity, assets, activity, risk);
 
-    // 3. 生成分享卡片数据
-    // ✅ 修复点：这里使用了新的接口，直接传入 risk 对象
-    const share = buildShareModule(address, assets, risk);
+    // Share 模块生成快照数据
+    const share = buildShareModule(cleanAddress, assets, risk);
 
     // 4. 组装最终报告
-    const report = {
-      version: "1.2", // 版本号升级
-      address,
+    const report: ReportData = {
+      version: "v2.0",
+      address: cleanAddress,
       identity,
       summary,
       assets,
       activity,
       gas,
       risk,
+      approvals, // ✅ 新增：放入最终返回结果
       share,
       meta: {
-        version: "1.2",
-        generatedAt,
+        version: "2.0.0",
+        generatedAt: Date.now(),
         fromCache: false,
-        // 下面这些历史字段留空，等未来开发历史记录功能时再填
-        history: [],
-        previousValue: null,
-        valueChange: null,
-        valueChangePct: null,
+        history: [], // 暂时留空，由前端本地存储管理历史
       },
     };
 
-    // 5. 简单的统计埋点 (可选，防止报错)
-    try {
-      const statsUrl = process.env.WALLETAUDIT_STATS_HIT_URL;
-      if (statsUrl) {
-        // 不等待埋点结果，避免阻塞响应
-        void fetch(statsUrl, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ source: "web", address }),
-          cache: "no-store",
-        }).catch(() => {});
-      }
-    } catch {
-      // ignore
-    }
-
-    return NextResponse.json(report, { status: 200 });
-  } catch (err: any) {
-    console.error("[api/report] unexpected error:", err);
+    return NextResponse.json(report);
+  } catch (error: any) {
+    console.error("Report generation failed:", error);
     return NextResponse.json(
-      { error: err?.message || "生成报告时出现异常，请稍后重试或联系维护者。" },
+      { error: "Failed to generate report", details: error.message },
       { status: 500 }
     );
   }
