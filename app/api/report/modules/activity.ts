@@ -1,10 +1,14 @@
-// activity.ts — WalletAudit v1.0
-// Level 1 行为画像（最近 500 笔，轻量版）
+// app/api/report/modules/activity.ts — WalletAudit v1.1
+// 行为画像（最近 500 笔，轻量版）
 // - 只看 fromAddress = 钱包地址（主动发起的交易）
 // - 统计：txCount / activeDays / contractsInteracted / topContracts / weeklyHistogram
+//
+// v1.1：Top 合约地址使用 Etherscan 解析标签，输出：ContractName (0x...)
+// 失败则降级：原始地址
 
 import { fetchJsonWithTimeout } from "../utils/fetch";
 import { ActivityModule } from "./types";
+import { formatAddressWithLabel } from "../utils/etherscan";
 
 const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL!;
 
@@ -17,27 +21,22 @@ interface RawTransfer {
   };
 }
 
-// 将日期字符串转为时间戳（毫秒）
 function toTimestamp(blockTimestamp?: string): number | null {
   if (!blockTimestamp) return null;
   const t = Date.parse(blockTimestamp);
   return Number.isFinite(t) ? t : null;
 }
 
-// 取一周的起始时间（周一 00:00）
 function getWeekStart(ts: number): number {
   const d = new Date(ts);
-  const day = d.getUTCDay(); // 0 = Sunday
-  const diff = (day + 6) % 7; // 将周一作为 0
+  const day = d.getUTCDay(); // 0=Sunday
+  const diff = (day + 6) % 7; // Monday as 0
   d.setUTCDate(d.getUTCDate() - diff);
   d.setUTCHours(0, 0, 0, 0);
   return d.getTime();
 }
 
-// 获取最近 500 笔 fromAddress = address 的转账
-async function fetchRecentTransfers(
-  address: string
-): Promise<RawTransfer[]> {
+async function fetchRecentTransfers(address: string): Promise<RawTransfer[]> {
   try {
     const res = await fetchJsonWithTimeout(ALCHEMY_RPC, {
       method: "POST",
@@ -49,7 +48,7 @@ async function fetchRecentTransfers(
         params: [
           {
             fromAddress: address,
-            maxCount: "0x1f4", // 500 笔
+            maxCount: "0x1f4", // 500
             category: ["external", "erc20", "internal", "erc721", "erc1155"],
             withMetadata: true,
           },
@@ -57,17 +56,13 @@ async function fetchRecentTransfers(
       }),
     });
 
-    const transfers: RawTransfer[] = res?.result?.transfers ?? [];
-    return transfers;
+    return res?.result?.transfers ?? [];
   } catch {
     return [];
   }
 }
 
-// 主构建函数
-export async function buildActivityModule(
-  address: string
-): Promise<ActivityModule> {
+export async function buildActivityModule(address: string): Promise<ActivityModule> {
   const transfers = await fetchRecentTransfers(address);
 
   if (!transfers.length) {
@@ -80,26 +75,24 @@ export async function buildActivityModule(
     };
   }
 
+  const lowerAddr = address.toLowerCase();
   const daySet = new Set<string>();
-  const contractMap = new Map<string, number>(); // counterparty -> count
-  const weekMap = new Map<number, number>(); // weekStart -> count
+  const contractMap = new Map<string, number>();
+  const weekMap = new Map<number, number>();
 
   for (const t of transfers) {
     const ts = toTimestamp(t.metadata?.blockTimestamp);
     if (ts) {
-      // 活跃天数：按日期去重（UTC）
       const d = new Date(ts);
       const dayKey = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
       daySet.add(dayKey);
 
-      // weekly histogram
       const ws = getWeekStart(ts);
       weekMap.set(ws, (weekMap.get(ws) || 0) + 1);
     }
 
-    // 交互合约：简单用 to 地址作为 counterparty
     const to = t.to?.toLowerCase();
-    if (to && to !== address.toLowerCase()) {
+    if (to && to !== lowerAddr) {
       contractMap.set(to, (contractMap.get(to) || 0) + 1);
     }
   }
@@ -108,19 +101,26 @@ export async function buildActivityModule(
   const activeDays = daySet.size;
   const contractsInteracted = contractMap.size;
 
-  // Top 3 合约地址
-  const topContracts = Array.from(contractMap.entries())
+  // Top 3 raw addresses
+  const topRaw = Array.from(contractMap.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
     .map(([addr]) => addr);
 
-  // weeklyHistogram：按时间排序
+  // Label resolve
+  const topContracts = await Promise.all(
+    topRaw.map(async (addr) => {
+      try {
+        return await formatAddressWithLabel(addr);
+      } catch {
+        return addr;
+      }
+    })
+  );
+
   const weeklyHistogram = Array.from(weekMap.entries())
     .sort((a, b) => a[0] - b[0])
-    .map(([weekStart, count]) => ({
-      weekStart,
-      count,
-    }));
+    .map(([weekStart, count]) => ({ weekStart, count }));
 
   return {
     txCount,
@@ -129,9 +129,4 @@ export async function buildActivityModule(
     topContracts,
     weeklyHistogram,
   };
-}
-
-// === 新增：给 route.ts 调用的标准导出名 ===
-export async function getActivity(address: string): Promise<ActivityModule> {
-  return buildActivityModule(address);
 }
