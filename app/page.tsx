@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import html2canvas from "html2canvas";
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
+} from "recharts";
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
   ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, Share2
@@ -203,26 +206,28 @@ function formatEth(wei: string) {
 // 3. 核心功能组件 (UI Parts)
 // ==========================================
 
-// ✅ 彻底重写：去 Tailwind 化，使用纯 SVG 避免 lab 报错
+// ✅ 彻底重写：无菌版分享卡片
+// 移除了所有 Lucide 组件，全部换成 svg 标签 + 纯 Hex 颜色
 function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'|'en', targetRef: any }) {
     const D = DICT[lang];
     const score = report.risk.score;
     const isSafe = score >= 80;
     
-    // 纯 HEX 颜色，绝不使用 rgba 或 变量
+    // 纯 HEX 颜色
     const bgMain = '#0a0a0a'; 
     const textWhite = '#ffffff';
     const textMuted = '#94a3b8'; 
     const accentColor = isSafe ? '#34d399' : score <= 50 ? '#f87171' : '#fbbf24'; 
     const bgCard = '#171717';
     const borderCard = '#262626';
+    const bgGlowHex = isSafe ? '#064e3b' : score <= 50 ? '#7f1d1d' : '#78350f';
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, zIndex: -9999, opacity: 0, pointerEvents: 'none' }}>
             <div ref={targetRef} style={{
                 width: '400px', 
                 backgroundColor: bgMain,
-                padding: '32px',
+                padding: '24px',
                 fontFamily: 'sans-serif',
                 border: '1px solid #333',
                 borderRadius: '16px',
@@ -238,10 +243,20 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
                     backgroundColor: accentColor,
                 }}></div>
 
-                {/* Header (纯 SVG 图标) */}
+                {/* 纯 CSS 光晕 */}
+                <div style={{
+                    position: 'absolute', top: '-50px', right: '-50px',
+                    width: '200px', height: '200px',
+                    backgroundColor: bgGlowHex,
+                    filter: 'blur(80px)',
+                    opacity: 0.4,
+                    zIndex: 0
+                }}></div>
+
+                {/* Header (纯 SVG 替代 Lucide Icon) */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', position: 'relative', zIndex: 10 }}>
                     <div style={{ fontSize: '20px', fontWeight: '900', color: textWhite, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {/* 简单的 SVG 闪电，不依赖 lucide */}
+                        {/* 纯 SVG 闪电图标，不带 class */}
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
                         </svg>
@@ -255,7 +270,9 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
                 {/* Score Section */}
                 <div style={{ textAlign: 'center', padding: '20px 0', borderBottom: '1px solid #333', position: 'relative', zIndex: 10 }}>
                     <div style={{ fontSize: '12px', color: textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>{D.riskScore}</div>
-                    <div style={{ fontSize: '72px', fontWeight: 'bold', color: accentColor, lineHeight: '1' }}>
+                    <div style={{ 
+                        fontSize: '64px', fontWeight: 'bold', color: accentColor, lineHeight: '1',
+                    }}>
                         {score}
                     </div>
                     <div style={{ 
@@ -294,7 +311,7 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
                         <span style={{ fontSize: '10px', color: textMuted }}>{D.scanToUse}</span>
                         <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#60a5fa' }}>walletaudit.me</span>
                     </div>
-                    {/* 简单的纯 CSS 二维码样式 */}
+                    {/* 纯 CSS 二维码模拟 */}
                     <div style={{ width: '48px', height: '48px', backgroundColor: 'white', borderRadius: '4px', padding: '4px' }}>
                         <div style={{ width: '100%', height: '100%', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <span style={{ fontSize: '8px', color: 'white', fontWeight: 'bold' }}>QR</span>
