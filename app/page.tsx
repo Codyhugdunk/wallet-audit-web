@@ -441,13 +441,27 @@ export default function HomePage() {
       const { assets, identity, risk } = report;
       const totalVal = formatMoney(assets.totalValue, lang);
       const ageDate = identity.createdAt ? new Date(identity.createdAt).getFullYear() : null;
-      const topAsset = assets.tokens.length > 0 ? assets.tokens[0].symbol : "ETH";
+      
+      // ✅ 修复核心资产判断逻辑
+      const ethVal = assets.eth.value;
+      // 取价值最高的 Token（如果存在）
+      const topToken = assets.tokens.length > 0 ? assets.tokens[0] : null;
+      
+      // 如果 ETH 价值大于 Top Token，或者根本没有 Token，核心就是 ETH
+      const topAsset = (topToken && topToken.value > ethVal) ? topToken.symbol : "ETH";
       
       let text = "";
       if (lang === 'cn') {
           text += `此地址目前管理约 ${totalVal} 资产，核心配置为 ${topAsset}。`;
           if (ageDate) text += ` 账户创建于 ${ageDate} 年，`;
-          text += `属于「${PERSONA_MAP[risk.personaType] || risk.personaType}」。`;
+          
+          // 特殊处理黑客描述
+          if (risk.level === 'High' && risk.score === 0) {
+             text += `被标记为「${risk.personaType}」。请务必远离！`;
+          } else {
+             text += `属于「${PERSONA_MAP[risk.personaType] || risk.personaType}」。`;
+          }
+
           if (risk.score < 50) text += ` 系统检测到较高的资产集中度或异常交互行为，请注意风险。`;
           else text += ` 资产结构相对稳健。`;
       } else {
