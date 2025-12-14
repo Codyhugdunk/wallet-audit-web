@@ -1,12 +1,19 @@
 // app/api/report/modules/risk.ts
+// WalletAudit Pro - Advanced Risk Quant Model
+
 import type { AssetModule, ActivityModule, RiskModule } from "./types";
 
-// ... (前面的辅助函数 calculateHHI, calculateDegenIndex, calculateWealthScore, generatePersona 全部保持不变，省略以节省篇幅) ...
-// 请保留上面的所有辅助函数代码，只替换下面的 buildRiskModule 主函数
+// ✅ 1. 定义黑名单库 (新增)
+const RISK_BLACKLIST = new Set([
+  "0x098b716b8aaf21512996dc57eb0615e2383e2f96", // Ronin Hacker
+  "0xa0ac69911943480d2432ebcb23b318d910d95b71", // Wintermute Exploiter
+  "0x629552782427a9223e7f471df0778c772e232970", // Nomad Bridge Exploiter
+].map(a => a.toLowerCase()));
 
 // ==========================================
-// 1. 金融数学模型工具函数 (保持不变)
+// 2. 金融数学模型工具函数
 // ==========================================
+
 function calculateHHI(allocation: { ratio: number }[]): number {
   return allocation.reduce((sum, item) => sum + Math.pow(item.ratio * 100, 2), 0);
 }
@@ -22,7 +29,10 @@ function calculateWealthScore(totalUsd: number): number {
   return Math.log10(totalUsd);
 }
 
-// ... (generatePersona 函数保持不变) ...
+// ==========================================
+// 3. 核心画像生成逻辑
+// ==========================================
+
 function generatePersona(
   hhi: number,
   degenIndex: number,
@@ -51,21 +61,37 @@ function generatePersona(
   else if (wealthScore >= 5 && degenIndex > 60) type = "金狗猎人 (Golden Dog Hunter)";
   else if (degenIndex > 90) type = "高危 Degen 玩家";
   else if (hhi > 8000) type = "信仰持仓者 (Maxi)";
-  
+  else if (wealthScore < 3 && degenIndex < 20) type = "链上观光客";
+
   return { type, tags };
 }
 
 // ==========================================
-// 3. 风险模块主导出
+// 4. 风险模块主导出
 // ==========================================
 
 export function buildRiskModule(
   assets: AssetModule,
-  activity: ActivityModule
+  activity: ActivityModule,
+  address: string // ✅ 参数里加入了 address
 ): RiskModule {
   const total = assets.totalValue;
-  
-  // 处理 txCount 可能是字符串的情况
+  const cleanAddr = address.toLowerCase();
+
+  // 🚨 黑名单熔断机制
+  if (RISK_BLACKLIST.has(cleanAddr)) {
+      return {
+          level: "High",
+          score: 0,
+          comment: "⛔️ 极度高危：该地址被标记为知名黑客/攻击者地址 (Exploiter)。请绝对禁止与其进行任何交互！",
+          stableRatio: 0, memeRatio: 0, otherRatio: 0, txCount: 0,
+          personaType: "☠️ 网络犯罪者",
+          personaTags: ["黑客", "洗钱", "高危"],
+          metrics: { hhi: 10000, degenIndex: 100, wealthScore: 10 }
+      };
+  }
+
+  // 正常计算逻辑
   const txNum = typeof activity.txCount === 'string' 
     ? parseInt(activity.txCount.replace(/\D/g, '')) || 0 
     : activity.txCount;
@@ -75,49 +101,36 @@ export function buildRiskModule(
   let majorRatio = 0;
 
   for (const item of assets.allocation) {
-    if (item.category === "Stablecoins") {
-      stableRatio += item.ratio;
-    } else if (item.category === "Meme") {
-      memeRatio += item.ratio;
-    } else if (item.category === "Majors" || item.category === "ETH") { 
-      // ✅ 核心修复：把 ETH 也算作 Major (主流资产)！
-      // 之前漏了 || item.category === "ETH"，导致 ETH 被算进了 Other
-      majorRatio += item.ratio;
-    }
+    if (item.category === "Stablecoins") stableRatio += item.ratio;
+    else if (item.category === "Meme") memeRatio += item.ratio;
+    // ✅ 修复：ETH 算作主流币
+    else if (item.category === "Majors" || item.category === "ETH") majorRatio += item.ratio;
   }
   
-  // 计算剩余的“其他/垃圾”资产比例
-  let otherRatio = 1 - stableRatio - memeRatio - majorRatio;
-  if (otherRatio < 0) otherRatio = 0;
+  let otherRatio = Math.max(0, 1 - stableRatio - memeRatio - majorRatio);
 
-  // 运行模型
   const hhi = calculateHHI(assets.allocation);
   const degenIndex = calculateDegenIndex(memeRatio, otherRatio, txNum);
   const wealthScore = calculateWealthScore(total);
 
-  // 计算评分
   let score = 100;
+  score -= degenIndex * 0.8; 
   
-  // 扣分逻辑
-  score -= degenIndex * 0.8; // 土狗越多扣分越多
-  
-  // 集中度扣分：只有当资金不集中在稳定币/主流币时，才扣分
-  // ✅ 修复逻辑：如果是 ETH Maxi (ETH 梭哈者)，不应该扣太多分
-  if (hhi > 5000 && (stableRatio + majorRatio) < 0.8) {
+  // 集中度扣分豁免逻辑
+  if (majorRatio > 0.8) {
+      // 如果主要是主流币，不扣分
+  } else if (hhi > 5000 && (stableRatio + majorRatio) < 0.8) {
       score -= 15;
   }
 
-  // 加分逻辑：有钱就是抗风险
   if (wealthScore > 5) score += 10;
   
   score = Math.max(0, Math.min(100, Math.round(score)));
 
-  // 等级判定
   let level: "Low" | "Medium" | "High" = "Medium";
   if (score >= 80) level = "Low";
-  else if (score <= 50) level = "High"; // 调整了一下阈值，低于50就算高危
+  else if (score <= 50) level = "High";
 
-  // 生成点评
   let comment = "";
   if (total < 10) {
     comment = "钱包空置或仅有微量残余资产。";
@@ -126,8 +139,7 @@ export function buildRiskModule(
   } else if (hhi > 6000 && stableRatio > 0.9) {
     comment = "🛡️ 避险模式：资金极度集中于稳定币。";
   } else if (hhi > 6000 && majorRatio > 0.9) {
-    // ✅ 新增点评：针对 ETH 巨鲸
-    comment = "💎 信仰持仓：该地址是坚定的主流币 (ETH/BTC) 长期持有者。";
+    comment = "💎 信仰持仓：坚定的主流币 (ETH/BTC) 长期持有者。";
   } else if (score > 80) {
     comment = "✅ 稳健模型：资产配置多元化且持有大量蓝筹。";
   } else {
@@ -146,7 +158,11 @@ export function buildRiskModule(
     txCount: activity.txCount,
     personaType: type,
     personaTags: tags,
-    metrics: { hhi, degenIndex, wealthScore }
+    metrics: {
+      hhi,
+      degenIndex,
+      wealthScore
+    }
   };
 }
 

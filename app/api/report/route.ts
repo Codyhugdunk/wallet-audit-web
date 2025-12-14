@@ -40,7 +40,7 @@ export async function GET(request: Request) {
 
     // 3. 执行依赖数据的模块
     // Risk 模块依赖 Assets 和 Activity 的结果
-    const risk = buildRiskModule(assets, activity);
+    const risk = buildRiskModule(assets, activity, cleanAddress); // ✅ 把地址传进去
 
     // Summary 模块依赖前面所有的结果
     const summary = buildSummaryModule(identity, assets, activity, risk);
