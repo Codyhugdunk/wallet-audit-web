@@ -215,38 +215,57 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
     const score = report.risk.score;
     const isSafe = score >= 80;
     
-    // 颜色配置 (纯 HEX)
-    const bgMain = '#0a0a0a'; // 纯黑偏灰
+    // 纯 HEX 颜色定义 (html2canvas 绝对支持)
+    const bgMain = '#0a0a0a'; 
     const textWhite = '#ffffff';
-    const textMuted = '#94a3b8'; // slate-400
-    const accentColor = isSafe ? '#34d399' : score <= 50 ? '#f87171' : '#fbbf24'; // Green/Red/Amber
+    const textMuted = '#94a3b8'; 
+    const accentColor = isSafe ? '#34d399' : score <= 50 ? '#f87171' : '#fbbf24'; 
     const borderColor = isSafe ? '#059669' : score <= 50 ? '#dc2626' : '#d97706'; 
+    const bgGlowHex = isSafe ? '#064e3b' : score <= 50 ? '#7f1d1d' : '#78350f'; // Darker glow
 
     return (
-        <div style={{ position: 'fixed', top: 0, left: 0, zIndex: -9999, opacity: 0, pointerEvents: 'none' }}>
+        <div style={{ 
+            position: 'fixed', 
+            top: 0, 
+            left: 0, 
+            zIndex: -9999, 
+            opacity: 0, 
+            pointerEvents: 'none' 
+        }}>
             <div ref={targetRef} style={{
-                width: '400px', // 手机竖版卡片宽度
+                width: '400px', 
                 backgroundColor: bgMain,
                 padding: '24px',
                 fontFamily: 'sans-serif',
-                border: `1px solid #333`,
+                border: '1px solid #333',
                 borderRadius: '16px',
                 position: 'relative',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '20px'
+                gap: '20px',
+                overflow: 'hidden' // 确保圆角
             }}>
                 {/* 顶部装饰条 */}
                 <div style={{
                     position: 'absolute', top: 0, left: 0, right: 0, height: '6px',
                     backgroundColor: accentColor,
-                    borderTopLeftRadius: '16px', borderTopRightRadius: '16px'
                 }}></div>
 
-                {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
-                    <div style={{ fontSize: '18px', fontWeight: 'bold', color: textWhite, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{color: '#3b82f6'}}>⚡️</span> WalletAudit
+                {/* 背景光晕 (纯 CSS 模拟) */}
+                <div style={{
+                    position: 'absolute', top: '-50px', right: '-50px',
+                    width: '200px', height: '200px',
+                    backgroundColor: bgGlowHex,
+                    filter: 'blur(80px)',
+                    opacity: 0.4,
+                    zIndex: 0
+                }}></div>
+
+                {/* Header (移除 Activity 图标，改用 Emoji ⚡️，移除所有 className) */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', position: 'relative', zIndex: 10 }}>
+                    <div style={{ fontSize: '20px', fontWeight: '900', color: textWhite, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ color: '#3b82f6', fontSize: '20px' }}>⚡️</span> 
+                        WalletAudit
                     </div>
                     <div style={{ fontSize: '12px', color: textMuted }}>
                         {new Date().toLocaleDateString()}
@@ -254,11 +273,10 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
                 </div>
 
                 {/* Score Section */}
-                <div style={{ textAlign: 'center', padding: '20px 0', borderBottom: '1px solid #333' }}>
+                <div style={{ textAlign: 'center', padding: '20px 0', borderBottom: '1px solid #333', position: 'relative', zIndex: 10 }}>
                     <div style={{ fontSize: '12px', color: textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>{D.riskScore}</div>
                     <div style={{ 
                         fontSize: '64px', fontWeight: 'bold', color: accentColor, lineHeight: '1',
-                        textShadow: `0 0 20px ${accentColor}40` // 简单的光晕兼容性好
                     }}>
                         {score}
                     </div>
@@ -277,7 +295,7 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
                 </div>
 
                 {/* Metrics */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', position: 'relative', zIndex: 10 }}>
                     <div style={{ backgroundColor: '#171717', padding: '12px', borderRadius: '8px', border: '1px solid #262626' }}>
                         <div style={{ fontSize: '10px', color: textMuted, textTransform: 'uppercase' }}>{D.netWorth}</div>
                         <div style={{ fontSize: '18px', fontWeight: 'bold', color: textWhite, marginTop: '4px' }}>
@@ -293,15 +311,15 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
                 </div>
 
                 {/* Footer */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', position: 'relative', zIndex: 10 }}>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '10px', color: textMuted }}>{D.scanToUse}</span>
                         <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#60a5fa' }}>walletaudit.me</span>
                     </div>
-                    {/* 二维码模拟方块 */}
+                    {/* 简单的纯 CSS 二维码样式 */}
                     <div style={{ width: '40px', height: '40px', backgroundColor: 'white', borderRadius: '4px', padding: '2px' }}>
                         <div style={{ width: '100%', height: '100%', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <span style={{ fontSize: '6px', color: 'white' }}>QR</span>
+                            <span style={{ fontSize: '8px', color: 'white', fontWeight: 'bold' }}>QR</span>
                         </div>
                     </div>
                 </div>
