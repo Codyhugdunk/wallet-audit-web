@@ -211,8 +211,11 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
     const D = DICT[lang];
     const score = report.risk.score;
     const isSafe = score >= 80;
-    const color = isSafe ? 'text-emerald-400' : score <= 50 ? 'text-red-500' : 'text-amber-400';
-    const borderColor = isSafe ? 'border-emerald-500' : score <= 50 ? 'border-red-500' : 'border-amber-500';
+    
+    // 硬编码颜色值 (html2canvas 友好型)
+    const colorHex = isSafe ? '#34d399' : score <= 50 ? '#ef4444' : '#fbbf24'; // emerald-400 : red-500 : amber-400
+    const borderColorHex = isSafe ? '#10b981' : score <= 50 ? '#ef4444' : '#f59e0b';
+    const bgGlowHex = isSafe ? '#10b981' : '#ef4444';
 
     return (
         <div style={{ 
@@ -223,53 +226,93 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
             opacity: 0, 
             pointerEvents: 'none' 
         }}>
-            <div ref={targetRef} className="w-[600px] bg-[#050505] p-8 text-slate-100 font-sans border-2 border-slate-800 relative overflow-hidden">
-                {/* 装饰背景 */}
-                <div className={`absolute top-0 right-0 w-[400px] h-[400px] rounded-full blur-[120px] opacity-20 pointer-events-none ${isSafe ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
+            <div ref={targetRef} style={{
+                width: '600px',
+                backgroundColor: '#050505',
+                padding: '32px',
+                fontFamily: 'sans-serif',
+                border: '2px solid #1e293b', // slate-800
+                position: 'relative',
+                overflow: 'hidden'
+            }}>
+                {/* 装饰背景 (使用标准 style) */}
+                <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    right: 0,
+                    width: '400px',
+                    height: '400px',
+                    borderRadius: '9999px',
+                    filter: 'blur(120px)',
+                    opacity: 0.15,
+                    backgroundColor: bgGlowHex,
+                    pointerEvents: 'none'
+                }}></div>
                 
                 {/* Header */}
-                <div className="flex items-center justify-between mb-8 relative z-10">
-                    <div className="flex items-center gap-2">
-                        <Activity className="text-blue-500" size={24} />
-                        <span className="text-2xl font-bold tracking-tighter text-white">WalletAudit</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', position: 'relative', zIndex: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {/* 这里不用 Activity 图标了，怕跨域，直接用文字 */}
+                        <span style={{ fontSize: '24px', fontWeight: 'bold', letterSpacing: '-0.05em', color: '#ffffff' }}>WalletAudit</span>
                     </div>
-                    <span className="text-xs text-slate-500 font-mono">{new Date().toLocaleDateString()}</span>
+                    <span style={{ fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>{new Date().toLocaleDateString()}</span>
                 </div>
 
                 {/* Score & Address */}
-                <div className="text-center mb-10 relative z-10">
-                    <div className={`w-32 h-32 rounded-2xl border-4 ${borderColor} bg-slate-900/50 flex flex-col items-center justify-center mx-auto mb-4`}>
-                        <span className={`text-5xl font-bold font-mono ${color}`}>{score}</span>
-                        <span className="text-[10px] uppercase tracking-widest opacity-70 mt-1">{D.riskScore}</span>
+                <div style={{ textAlign: 'center', marginBottom: '40px', position: 'relative', zIndex: 10 }}>
+                    <div style={{
+                        width: '128px',
+                        height: '128px',
+                        borderRadius: '16px',
+                        border: `4px solid ${borderColorHex}`,
+                        backgroundColor: 'rgba(15, 23, 42, 0.5)', // slate-900 / 0.5
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto 16px auto'
+                    }}>
+                        <span style={{ fontSize: '48px', fontWeight: 'bold', fontFamily: 'monospace', color: colorHex }}>{score}</span>
+                        <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.7, color: '#e2e8f0', marginTop: '4px' }}>{D.riskScore}</span>
                     </div>
-                    <h2 className="text-xl font-bold font-mono text-white mb-1">{report.address.slice(0,8)}...{report.address.slice(-6)}</h2>
-                    <div className="inline-block px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-300">
+                    <h2 style={{ fontSize: '20px', fontWeight: 'bold', fontFamily: 'monospace', color: '#ffffff', marginBottom: '8px' }}>
+                        {report.address.slice(0,8)}...{report.address.slice(-6)}
+                    </h2>
+                    <div style={{
+                        display: 'inline-block',
+                        padding: '4px 12px',
+                        borderRadius: '9999px',
+                        backgroundColor: '#1e293b', // slate-800
+                        border: '1px solid #334155', // slate-700
+                        fontSize: '12px',
+                        color: '#cbd5e1' // slate-300
+                    }}>
                         {lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType}
                     </div>
                 </div>
 
                 {/* Metrics Grid */}
-                <div className="grid grid-cols-2 gap-4 mb-8 relative z-10">
-                    <div className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl">
-                        <div className="text-xs text-slate-500 uppercase mb-1">{D.netWorth}</div>
-                        <div className="text-2xl font-bold text-white">{formatMoney(report.assets.totalValue, lang)}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '32px', position: 'relative', zIndex: 10 }}>
+                    <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.5)', border: '1px solid #1e293b', padding: '16px', borderRadius: '12px' }}>
+                        <div style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>{D.netWorth}</div>
+                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ffffff' }}>{formatMoney(report.assets.totalValue, lang)}</div>
                     </div>
-                    <div className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl">
-                        <div className="text-xs text-slate-500 uppercase mb-1">{D.riskCount}</div>
-                        <div className={`text-2xl font-bold ${report.approvals && report.approvals.riskCount > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                    <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.5)', border: '1px solid #1e293b', padding: '16px', borderRadius: '12px' }}>
+                        <div style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>{D.riskCount}</div>
+                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: report.approvals && report.approvals.riskCount > 0 ? '#f87171' : '#34d399' }}>
                             {report.approvals ? report.approvals.riskCount : 0}
                         </div>
                     </div>
                 </div>
 
                 {/* Footer */}
-                <div className="flex items-center justify-between border-t border-slate-800 pt-4 relative z-10">
-                    <div className="flex flex-col">
-                        <span className="text-xs text-slate-500 uppercase">{D.shareTitle}</span>
-                        <span className="text-sm font-bold text-blue-400">walletaudit.me</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #1e293b', paddingTop: '16px', position: 'relative', zIndex: 10 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>{D.shareTitle}</span>
+                        <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#60a5fa' }}>walletaudit.me</span>
                     </div>
-                    <div className="bg-white p-1 rounded">
-                       <div className="w-12 h-12 bg-black flex items-center justify-center text-[8px] text-white text-center leading-tight">SCAN<br/>ME</div>
+                    <div style={{ backgroundColor: '#ffffff', padding: '4px', borderRadius: '4px' }}>
+                       <div style={{ width: '48px', height: '48px', backgroundColor: '#000000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', color: '#ffffff', textAlign: 'center', lineHeight: '1.2' }}>SCAN<br/>ME</div>
                     </div>
                 </div>
             </div>
