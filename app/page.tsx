@@ -116,9 +116,9 @@ const DICT = {
     spender: "授权对象",
     amount: "额度",
     unknownContract: "未知合约",
-    shareBtn: "生成分享图",
+    shareBtn: "生成报告卡片",
     downloading: "生成中...",
-    shareTitle: "WalletAudit 链上审计报告",
+    shareTitle: "WalletAudit 链上审计",
     scanToUse: "扫码体检你的钱包"
   },
   en: {
@@ -203,116 +203,106 @@ function formatEth(wei: string) {
 }
 
 // ==========================================
-// 3. 核心功能组件
+// 3. 核心功能组件 (UI Parts)
 // ==========================================
 
-// 隐藏的分享卡片渲染区 (已修复：透明显示而非移出屏幕)
+// ✅ 彻底修复的分享卡片组件
+// 1. 移除所有 Tailwind 类名，使用纯 Style 对象
+// 2. 移除 Lab 颜色，使用 Hex/RGB
+// 3. 宽度设为 400px (手机友好宽度)，高度自适应
 function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'|'en', targetRef: any }) {
     const D = DICT[lang];
     const score = report.risk.score;
     const isSafe = score >= 80;
     
-    // 硬编码颜色值 (html2canvas 友好型)
-    const colorHex = isSafe ? '#34d399' : score <= 50 ? '#ef4444' : '#fbbf24'; // emerald-400 : red-500 : amber-400
-    const borderColorHex = isSafe ? '#10b981' : score <= 50 ? '#ef4444' : '#f59e0b';
-    const bgGlowHex = isSafe ? '#10b981' : '#ef4444';
+    // 颜色配置 (纯 HEX)
+    const bgMain = '#0a0a0a'; // 纯黑偏灰
+    const textWhite = '#ffffff';
+    const textMuted = '#94a3b8'; // slate-400
+    const accentColor = isSafe ? '#34d399' : score <= 50 ? '#f87171' : '#fbbf24'; // Green/Red/Amber
+    const borderColor = isSafe ? '#059669' : score <= 50 ? '#dc2626' : '#d97706'; 
 
     return (
-        <div style={{ 
-            position: 'fixed', 
-            top: 0, 
-            left: 0, 
-            zIndex: -100, 
-            opacity: 0, 
-            pointerEvents: 'none' 
-        }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, zIndex: -9999, opacity: 0, pointerEvents: 'none' }}>
             <div ref={targetRef} style={{
-                width: '600px',
-                backgroundColor: '#050505',
-                padding: '32px',
+                width: '400px', // 手机竖版卡片宽度
+                backgroundColor: bgMain,
+                padding: '24px',
                 fontFamily: 'sans-serif',
-                border: '2px solid #1e293b', // slate-800
+                border: `1px solid #333`,
+                borderRadius: '16px',
                 position: 'relative',
-                overflow: 'hidden'
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '20px'
             }}>
-                {/* 装饰背景 (使用标准 style) */}
+                {/* 顶部装饰条 */}
                 <div style={{
-                    position: 'absolute',
-                    top: 0,
-                    right: 0,
-                    width: '400px',
-                    height: '400px',
-                    borderRadius: '9999px',
-                    filter: 'blur(120px)',
-                    opacity: 0.15,
-                    backgroundColor: bgGlowHex,
-                    pointerEvents: 'none'
+                    position: 'absolute', top: 0, left: 0, right: 0, height: '6px',
+                    backgroundColor: accentColor,
+                    borderTopLeftRadius: '16px', borderTopRightRadius: '16px'
                 }}></div>
-                
+
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', position: 'relative', zIndex: 10 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {/* 这里不用 Activity 图标了，怕跨域，直接用文字 */}
-                        <span style={{ fontSize: '24px', fontWeight: 'bold', letterSpacing: '-0.05em', color: '#ffffff' }}>WalletAudit</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+                    <div style={{ fontSize: '18px', fontWeight: 'bold', color: textWhite, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{color: '#3b82f6'}}>⚡️</span> WalletAudit
                     </div>
-                    <span style={{ fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>{new Date().toLocaleDateString()}</span>
+                    <div style={{ fontSize: '12px', color: textMuted }}>
+                        {new Date().toLocaleDateString()}
+                    </div>
                 </div>
 
-                {/* Score & Address */}
-                <div style={{ textAlign: 'center', marginBottom: '40px', position: 'relative', zIndex: 10 }}>
-                    <div style={{
-                        width: '128px',
-                        height: '128px',
-                        borderRadius: '16px',
-                        border: `4px solid ${borderColorHex}`,
-                        backgroundColor: 'rgba(15, 23, 42, 0.5)', // slate-900 / 0.5
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        margin: '0 auto 16px auto'
+                {/* Score Section */}
+                <div style={{ textAlign: 'center', padding: '20px 0', borderBottom: '1px solid #333' }}>
+                    <div style={{ fontSize: '12px', color: textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>{D.riskScore}</div>
+                    <div style={{ 
+                        fontSize: '64px', fontWeight: 'bold', color: accentColor, lineHeight: '1',
+                        textShadow: `0 0 20px ${accentColor}40` // 简单的光晕兼容性好
                     }}>
-                        <span style={{ fontSize: '48px', fontWeight: 'bold', fontFamily: 'monospace', color: colorHex }}>{score}</span>
-                        <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.7, color: '#e2e8f0', marginTop: '4px' }}>{D.riskScore}</span>
+                        {score}
                     </div>
-                    <h2 style={{ fontSize: '20px', fontWeight: 'bold', fontFamily: 'monospace', color: '#ffffff', marginBottom: '8px' }}>
-                        {report.address.slice(0,8)}...{report.address.slice(-6)}
-                    </h2>
-                    <div style={{
-                        display: 'inline-block',
-                        padding: '4px 12px',
-                        borderRadius: '9999px',
-                        backgroundColor: '#1e293b', // slate-800
-                        border: '1px solid #334155', // slate-700
+                    <div style={{ 
+                        marginTop: '16px', 
+                        display: 'inline-block', 
+                        padding: '4px 12px', 
+                        borderRadius: '99px', 
+                        backgroundColor: '#1e293b', 
+                        color: '#e2e8f0', 
                         fontSize: '12px',
-                        color: '#cbd5e1' // slate-300
+                        border: '1px solid #334155'
                     }}>
                         {lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType}
                     </div>
                 </div>
 
-                {/* Metrics Grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '32px', position: 'relative', zIndex: 10 }}>
-                    <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.5)', border: '1px solid #1e293b', padding: '16px', borderRadius: '12px' }}>
-                        <div style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>{D.netWorth}</div>
-                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ffffff' }}>{formatMoney(report.assets.totalValue, lang)}</div>
+                {/* Metrics */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div style={{ backgroundColor: '#171717', padding: '12px', borderRadius: '8px', border: '1px solid #262626' }}>
+                        <div style={{ fontSize: '10px', color: textMuted, textTransform: 'uppercase' }}>{D.netWorth}</div>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: textWhite, marginTop: '4px' }}>
+                            {formatMoney(report.assets.totalValue, lang)}
+                        </div>
                     </div>
-                    <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.5)', border: '1px solid #1e293b', padding: '16px', borderRadius: '12px' }}>
-                        <div style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>{D.riskCount}</div>
-                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: report.approvals && report.approvals.riskCount > 0 ? '#f87171' : '#34d399' }}>
+                    <div style={{ backgroundColor: '#171717', padding: '12px', borderRadius: '8px', border: '1px solid #262626' }}>
+                        <div style={{ fontSize: '10px', color: textMuted, textTransform: 'uppercase' }}>{D.riskCount}</div>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: report.approvals && report.approvals.riskCount > 0 ? '#f87171' : accentColor, marginTop: '4px' }}>
                             {report.approvals ? report.approvals.riskCount : 0}
                         </div>
                     </div>
                 </div>
 
                 {/* Footer */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #1e293b', paddingTop: '16px', position: 'relative', zIndex: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>{D.shareTitle}</span>
+                        <span style={{ fontSize: '10px', color: textMuted }}>{D.scanToUse}</span>
                         <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#60a5fa' }}>walletaudit.me</span>
                     </div>
-                    <div style={{ backgroundColor: '#ffffff', padding: '4px', borderRadius: '4px' }}>
-                       <div style={{ width: '48px', height: '48px', backgroundColor: '#000000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', color: '#ffffff', textAlign: 'center', lineHeight: '1.2' }}>SCAN<br/>ME</div>
+                    {/* 二维码模拟方块 */}
+                    <div style={{ width: '40px', height: '40px', backgroundColor: 'white', borderRadius: '4px', padding: '2px' }}>
+                        <div style={{ width: '100%', height: '100%', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <span style={{ fontSize: '6px', color: 'white' }}>QR</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -323,7 +313,6 @@ function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'
 function ApprovalsCard({ approvals, lang }: { approvals: NonNullable<Report['approvals']>, lang: 'cn' | 'en' }) {
     const D = DICT[lang];
     const hasRisk = approvals.riskCount > 0;
-    
     if (approvals.items.length === 0) return null;
 
     return (
@@ -339,32 +328,21 @@ function ApprovalsCard({ approvals, lang }: { approvals: NonNullable<Report['app
                     </span>
                 )}
             </div>
-
             <div className="space-y-2">
                 {approvals.items.map((item, idx) => (
                     <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-slate-900/40 border border-slate-800/50 text-xs">
                         <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-2">
-                                <span className="font-bold text-white bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
-                                    {item.token}
-                                </span>
+                                <span className="font-bold text-white bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">{item.token}</span>
                                 <span className="text-slate-500">➔</span>
-                                <span className={`${item.riskLevel === 'High' ? 'text-red-300' : 'text-slate-300'} font-medium`}>
-                                    {item.spenderName}
-                                </span>
+                                <span className={`${item.riskLevel === 'High' ? 'text-red-300' : 'text-slate-300'} font-medium`}>{item.spenderName}</span>
                             </div>
-                            <span className="text-[10px] text-slate-500 font-mono ml-1">
-                                {item.spender.slice(0, 6)}...{item.spender.slice(-4)}
-                            </span>
+                            <span className="text-[10px] text-slate-500 font-mono ml-1">{item.spender.slice(0, 6)}...{item.spender.slice(-4)}</span>
                         </div>
-                        
                         <div className="flex items-center gap-3">
                             <div className="text-right hidden sm:block">
-                                <div className={`font-medium ${item.amount === 'Unlimited' ? 'text-amber-400' : 'text-slate-400'}`}>
-                                    {item.amount}
-                                </div>
+                                <div className={`font-medium ${item.amount === 'Unlimited' ? 'text-amber-400' : 'text-slate-400'}`}>{item.amount}</div>
                             </div>
-                            
                             <a href={`https://revoke.cash/address/${item.spender}`} target="_blank" className="px-3 py-1.5 rounded bg-slate-800 hover:bg-red-900/30 hover:text-red-400 text-slate-400 border border-slate-700 transition flex items-center gap-1">
                                 {D.revoke} <ExternalLink size={10} />
                             </a>
@@ -378,32 +356,25 @@ function ApprovalsCard({ approvals, lang }: { approvals: NonNullable<Report['app
 
 function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address: string, lang: 'cn' | 'en' }) {
   const D = DICT[lang];
-
-  if (!txs || txs.length === 0) {
-      return (
+  if (!txs || txs.length === 0) return (
         <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl p-8 flex flex-col items-center justify-center text-slate-500 h-full min-h-[400px]">
             <Activity size={32} className="opacity-20 mb-2" />
             <span className="text-xs">{D.noTxs}</span>
         </div>
-      )
-  }
+  );
 
   return (
     <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl overflow-hidden flex flex-col h-full min-h-[400px]">
        <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
-          <h3 className="font-bold text-slate-200 text-sm flex items-center gap-2">
-             <Activity size={14} className="text-blue-500" /> {D.recentActivity}
-          </h3>
+          <h3 className="font-bold text-slate-200 text-sm flex items-center gap-2"><Activity size={14} className="text-blue-500" /> {D.recentActivity}</h3>
        </div>
        <div className="flex-1 overflow-y-auto custom-scrollbar p-0">
           {txs.map((tx, idx) => {
              const isIn = tx.to?.toLowerCase() === address.toLowerCase();
              const isError = tx.isError === "1";
              const method = tx.functionName ? tx.functionName.split('(')[0] : (isIn ? 'Receive' : 'Send');
-             
              const ethVal = Number(tx.value) / 1e18;
              const isZero = ethVal < 0.000001;
-
              return (
              <div key={idx} className="flex items-center gap-3 p-3 border-b border-slate-800/50 hover:bg-slate-900/40 transition group">
                 <div className={`p-1.5 rounded-full border transition ${
@@ -414,30 +385,17 @@ function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address:
                 }`}>
                     {isError ? <AlertCircle size={14} /> : (method === 'execute' || method === 'executeBatch') ? <Zap size={14}/> : isIn ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}
                 </div>
-                
                 <div className="flex-1 min-w-0">
                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[11px] font-bold text-slate-300 font-mono truncate max-w-[120px]" title={method}>
-                         {method}
-                      </span>
-                      <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                         <Clock size={10} /> {formatTimeAgo(tx.timestamp * 1000, lang)}
-                      </span>
+                      <span className="text-[11px] font-bold text-slate-300 font-mono truncate max-w-[120px]" title={method}>{method}</span>
+                      <span className="text-[10px] text-slate-500 flex items-center gap-1"><Clock size={10} /> {formatTimeAgo(tx.timestamp * 1000, lang)}</span>
                    </div>
-                   <div className="text-[10px] text-slate-500 font-mono truncate">
-                      {isIn ? `From: ${tx.from.slice(0,6)}...` : `To: ${tx.to?.slice(0,6)}...`}
-                   </div>
+                   <div className="text-[10px] text-slate-500 font-mono truncate">{isIn ? `From: ${tx.from.slice(0,6)}...` : `To: ${tx.to?.slice(0,6)}...`}</div>
                 </div>
-
                 <div className="text-right min-w-[70px]">
-                   <div className={`text-xs font-mono ${isZero ? 'text-slate-600' : 'text-slate-200 font-medium'}`}>
-                      {isZero ? 'Interaction' : `${formatEth(tx.value)} ETH`}
-                   </div>
+                   <div className={`text-xs font-mono ${isZero ? 'text-slate-600' : 'text-slate-200 font-medium'}`}>{isZero ? 'Interaction' : `${formatEth(tx.value)} ETH`}</div>
                 </div>
-                
-                <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" className="text-slate-600 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition">
-                    <ExternalLink size={12} />
-                </a>
+                <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" className="text-slate-600 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition"><ExternalLink size={12} /></a>
              </div>
              )
           })}
@@ -506,7 +464,6 @@ export default function HomePage() {
   const [showNickModal, setShowNickModal] = useState(false);
   const [tempNick, setTempNick] = useState("");
   
-  // 截图相关
   const shareRef = useRef<HTMLDivElement>(null);
   const [generatingImg, setGeneratingImg] = useState(false);
 
@@ -575,7 +532,6 @@ export default function HomePage() {
       const { assets, identity, risk } = report;
       const totalVal = formatMoney(assets.totalValue, lang);
       const ageDate = identity.createdAt ? new Date(identity.createdAt).getFullYear() : null;
-      // ✅ 核心资产判断逻辑
       const ethVal = assets.eth.value;
       const topToken = assets.tokens.length > 0 ? assets.tokens[0] : null;
       const topAsset = (topToken && topToken.value > ethVal) ? topToken.symbol : "ETH";
@@ -584,13 +540,11 @@ export default function HomePage() {
       if (lang === 'cn') {
           text += `此地址目前管理约 ${totalVal} 资产，核心配置为 ${topAsset}。`;
           if (ageDate) text += ` 账户创建于 ${ageDate} 年，`;
-          
           if (risk.level === 'High' && risk.score === 0) {
              text += `被标记为「${risk.personaType}」。请务必远离！`;
           } else {
              text += `属于「${PERSONA_MAP[risk.personaType] || risk.personaType}」。`;
           }
-
           if (risk.score < 50) text += ` 系统检测到较高的资产集中度或异常交互行为，请注意风险。`;
           else text += ` 资产结构相对稳健。`;
       } else {
@@ -607,6 +561,7 @@ export default function HomePage() {
       if (!shareRef.current) return;
       setGeneratingImg(true);
       try {
+          // ✅ 配置项优化：允许跨域，禁用日志
           const canvas = await html2canvas(shareRef.current as HTMLElement, {
               backgroundColor: "#050505",
               scale: 2, 
@@ -656,12 +611,12 @@ export default function HomePage() {
                 <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">
                     {lang === 'cn' ? '洞察巨鲸，追踪聪明钱' : 'Track Whales & Smart Money'}
                 </h1>
-                <p className="text-slate-500 text-sm">
+                <p className="text-slate-500 text-sm px-4">
                     {lang === 'cn' ? '一站式链上战绩分析、交易流追踪与风险审计终端' : 'All-in-one terminal for On-chain PnL analysis, Transaction feeds and Risk audit.'}
                 </p>
             </div>
             
-            <form onSubmit={handleSubmit} className="relative z-10 group">
+            <form onSubmit={handleSubmit} className="relative z-10 group px-2">
                 <div className="absolute inset-0 bg-blue-600/20 rounded-xl blur-xl opacity-0 group-hover:opacity-100 transition duration-700"></div>
                 <div className="relative flex items-center bg-[#0a0a0a] border border-slate-800 rounded-xl p-1.5 shadow-2xl focus-within:border-blue-500/50 transition">
                     <Search className="ml-3 text-slate-500" size={18} />
@@ -669,15 +624,15 @@ export default function HomePage() {
                       value={address}
                       onChange={e => setAddress(e.target.value)}
                       placeholder={D.placeholder}
-                      className="flex-1 bg-transparent border-none outline-none text-sm px-3 text-white placeholder:text-slate-600 font-mono h-10"
+                      className="flex-1 bg-transparent border-none outline-none text-sm px-3 text-white placeholder:text-slate-600 font-mono h-10 w-full"
                     />
-                    <button disabled={loading} className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-6 h-10 rounded-lg transition">
+                    <button disabled={loading} className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 md:px-6 h-10 rounded-lg transition whitespace-nowrap">
                         {loading ? 'Thinking...' : D.analyze}
                     </button>
                 </div>
             </form>
 
-            <div className="pt-2 flex flex-wrap gap-2 justify-center">
+            <div className="pt-2 flex flex-wrap gap-2 justify-center px-2">
                 {favorites.length > 0 && favorites.map(fav => (
                     <div key={fav.address} onClick={() => loadFav(fav.address)} className="group flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-full px-3 py-1.5 hover:border-blue-500/50 hover:bg-slate-800 transition cursor-pointer select-none">
                         <span className="text-[11px] text-slate-300 font-medium">{fav.nickname}</span>
@@ -696,32 +651,41 @@ export default function HomePage() {
             <div className="lg:col-span-12 bg-[#0a0a0a] border border-slate-800 rounded-2xl p-6 relative overflow-hidden shadow-2xl">
                <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-blue-600/5 rounded-full blur-[100px] pointer-events-none"></div>
                <div className="flex flex-col md:flex-row gap-6 relative z-10">
-                  <div className="flex gap-5 shrink-0">
-                      {(() => {
-                          const s = getScoreStyle(report.risk.score);
-                          return (
-                            <div className={`flex flex-col items-center justify-center w-24 h-24 md:w-28 md:h-28 rounded-xl border ${s.bg} ${s.border} ${s.color} shrink-0`}>
-                                <div className="flex items-baseline">
-                                    <span className="text-3xl md:text-4xl font-bold font-mono">{report.risk.score}</span>
-                                    <span className="text-sm opacity-60 font-mono ml-0.5">/100</span>
+                  <div className="flex justify-between md:block">
+                      <div className="flex gap-5 shrink-0">
+                          {(() => {
+                              const s = getScoreStyle(report.risk.score);
+                              return (
+                                <div className={`flex flex-col items-center justify-center w-24 h-24 md:w-28 md:h-28 rounded-xl border ${s.bg} ${s.border} ${s.color} shrink-0`}>
+                                    <div className="flex items-baseline">
+                                        <span className="text-3xl md:text-4xl font-bold font-mono">{report.risk.score}</span>
+                                        <span className="text-sm opacity-60 font-mono ml-0.5">/100</span>
+                                    </div>
+                                    <span className="text-[10px] opacity-80 uppercase mt-1 font-bold text-center leading-tight px-1">{D.riskScore}</span>
                                 </div>
-                                <span className="text-[10px] opacity-80 uppercase mt-1 font-bold text-center leading-tight px-1">{D.riskScore}</span>
-                            </div>
-                          )
-                      })()}
+                              )
+                          })()}
+                      </div>
+                      
+                      {/* Mobile Asset Display */}
+                      <div className="md:hidden text-right">
+                          <div className="text-xs text-slate-500 uppercase">{D.netWorth}</div>
+                          <div className="text-xl font-bold text-white font-mono">{formatMoney(report.assets.totalValue, lang)}</div>
+                      </div>
                   </div>
 
                   <div className="flex-1 space-y-4">
                       <div>
-                          <div className="flex items-center justify-between mb-2">
-                             <h1 className="text-xl md:text-2xl font-bold text-white font-mono break-all tracking-tight">{report.address}</h1>
-                             {/* 分享按钮 */}
+                          <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
+                             <h1 className="text-lg md:text-2xl font-bold text-white font-mono break-all tracking-tight leading-tight">{report.address}</h1>
+                             
+                             {/* Share Button (Responsive) */}
                              <button 
                                 onClick={handleShare}
                                 disabled={generatingImg}
-                                className="md:hidden flex items-center gap-1 bg-slate-800 text-xs px-3 py-1.5 rounded-full border border-slate-700 text-slate-300 hover:text-white"
+                                className="self-start md:self-auto flex items-center gap-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition"
                              >
-                                 {generatingImg ? <Clock size={12} className="animate-spin"/> : <Share2 size={12} />}
+                                 {generatingImg ? <Clock size={12} className="animate-spin"/> : <Share2 size={14} />}
                                  {generatingImg ? D.downloading : D.shareBtn}
                              </button>
                           </div>
@@ -734,21 +698,11 @@ export default function HomePage() {
                                   {lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType}
                               </span>
                               
-                              <div className="flex gap-1 ml-2 text-slate-500">
+                              <div className="flex gap-1 ml-1 text-slate-500">
                                   <button onClick={() => navigator.clipboard.writeText(report.address)} className="p-1 hover:text-white transition"><Copy size={14} /></button>
                                   <button onClick={() => setShowNickModal(true)} className={`p-1 transition ${isFav?'text-amber-400':'hover:text-amber-400'}`}><Star size={14} fill={isFav?"currentColor":"none"} /></button>
                                   <a href={`https://etherscan.io/address/${report.address}`} target="_blank" className="p-1 hover:text-white transition"><ExternalLink size={14} /></a>
                               </div>
-
-                              {/* 桌面版分享按钮 */}
-                              <button 
-                                onClick={handleShare}
-                                disabled={generatingImg}
-                                className="hidden md:flex ml-auto items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition shadow-lg shadow-blue-900/30"
-                              >
-                                 {generatingImg ? <Clock size={12} className="animate-spin"/> : <Share2 size={14} />}
-                                 {generatingImg ? D.downloading : D.shareBtn}
-                              </button>
                           </div>
                       </div>
 
@@ -759,31 +713,31 @@ export default function HomePage() {
 
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
-                            <Zap size={14} className="text-yellow-500" />
-                            <div>
-                                <div className="text-[10px] text-slate-500 uppercase">{D.metricTx}</div>
-                                <div className="text-sm font-mono font-bold">{report.activity.txCount}</div>
+                            <Zap size={14} className="text-yellow-500 shrink-0" />
+                            <div className="min-w-0">
+                               <div className="text-[10px] text-slate-500 uppercase truncate">{D.metricTx}</div>
+                               <div className="text-sm font-mono font-bold truncate">{report.activity.txCount}</div>
                             </div>
                          </div>
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
-                            <Calendar size={14} className="text-blue-500" />
-                            <div>
-                                <div className="text-[10px] text-slate-500 uppercase">{D.metricDays}</div>
-                                <div className="text-sm font-mono font-bold">{report.activity.activeDays}</div>
+                            <Calendar size={14} className="text-blue-500 shrink-0" />
+                            <div className="min-w-0">
+                               <div className="text-[10px] text-slate-500 uppercase truncate">{D.metricDays}</div>
+                               <div className="text-sm font-mono font-bold truncate">{report.activity.activeDays}</div>
                             </div>
                          </div>
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
-                            <Flame size={14} className="text-orange-500" />
-                            <div>
-                                <div className="text-[10px] text-slate-500 uppercase">{D.metricGas}</div>
-                                <div className="text-sm font-mono font-bold">{formatMoney(report.gas.totalGasUsd, lang)}</div>
+                            <Flame size={14} className="text-orange-500 shrink-0" />
+                            <div className="min-w-0">
+                               <div className="text-[10px] text-slate-500 uppercase truncate">{D.metricGas}</div>
+                               <div className="text-sm font-mono font-bold truncate">{formatMoney(report.gas.totalGasUsd, lang)}</div>
                             </div>
                          </div>
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
-                            <Layers size={14} className="text-purple-500" />
-                            <div>
-                                <div className="text-[10px] text-slate-500 uppercase">{D.metricInteract}</div>
-                                <div className="text-sm font-mono font-bold">{report.activity.contractsInteracted}</div>
+                            <Layers size={14} className="text-purple-500 shrink-0" />
+                            <div className="min-w-0">
+                               <div className="text-[10px] text-slate-500 uppercase truncate">{D.metricInteract}</div>
+                               <div className="text-sm font-mono font-bold truncate">{report.activity.contractsInteracted}</div>
                             </div>
                          </div>
                       </div>
