@@ -1,7 +1,6 @@
 // app/api/report/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-// ✅ 按你 modules 的真实导出函数名来调用（避免 export 对不上导致 route.ts 直接挂）
 import { buildIdentityModule } from "./modules/identity";
 import { buildAssetsModule } from "./modules/assets";
 import { buildActivityModule } from "./modules/activity";
@@ -13,36 +12,38 @@ import { buildShareModule } from "./modules/share";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function isEthAddress(addr: string): boolean {
+  return /^0x[a-fA-F0-9]{40}$/.test(addr);
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const addressRaw = (searchParams.get("address") || "").trim();
-    const address = addressRaw && addressRaw.startsWith("0x") ? addressRaw : "";
+    const address = addressRaw.toLowerCase();
 
-    if (!address || address.length !== 42) {
+    if (!isEthAddress(address)) {
       return NextResponse.json(
-        { error: "请输入合法的以太坊地址（0x 开头，42 位长度）" },
+        { error: "请输入合法的以太坊地址（0x 开头，40 位 hex）" },
         { status: 400 }
       );
     }
 
     const generatedAt = Date.now();
 
-    // ✅ 和稳定版一样：四个模块并发拉数据
+    // 并发获取
     const [identity, assets, activity, gas] = await Promise.all([
       buildIdentityModule(address),
       buildAssetsModule(address),
-      buildActivityModule(address), // v1.1 已增强：Top 合约会变成 ContractName (0x...)
-      buildGasModule(address),      // v1.1 已增强：topTxs 会带 to/toDisplay（如果你按我给的 gas.ts 改了）
+      buildActivityModule(address),
+      buildGasModule(address),
     ]);
 
-    // ✅ 同步计算模块
+    // 同步计算
     const risk = buildRiskModule(assets, activity);
     const summary = buildSummaryModule(identity, assets, activity, risk);
 
-    // share 需要 ethPrice / valueChange 等参数：目前你原本就是传 null
-    // 这里 ethPrice 用 assets 内部使用的价格体系（本地 fallback / 线上真实）即可
-    // assets 模块没直接返回 ethPrice，所以这里先传 0（不影响你当前分享字段）
+    // share：暂时 ethPrice 传 0，不影响当前 UI
     const share = buildShareModule(address, assets, 0, null, null, generatedAt);
 
     const report = {
@@ -66,11 +67,11 @@ export async function GET(req: NextRequest) {
       },
     };
 
-    // ✅ 统计埋点：异步 fire-and-forget，不影响主流程
+    // 统计埋点（可选）
     try {
       const statsUrl = process.env.WALLETAUDIT_STATS_HIT_URL;
       if (statsUrl) {
-        fetch(statsUrl, {
+        void fetch(statsUrl, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ source: "web", address }),

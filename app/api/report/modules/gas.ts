@@ -1,9 +1,11 @@
-// app/api/report/modules/gas.ts — WalletAudit v1.1
+// app/api/report/modules/gas.ts
+// 轻量版 Gas 统计（最近最多 50 笔主动交易）
+
 import { fetchJsonWithTimeout } from "../utils/fetch";
 import { formatUnits, hexToBigInt, safeFloat } from "../utils/hex";
 import { GasModule } from "./types";
 import { getEthPrice } from "./prices";
-import { formatAddressWithLabel } from "../utils/etherscan";
+import { getDisplayName } from "./labels";
 
 const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL!;
 const MAX_TX_FOR_GAS = 50;
@@ -33,14 +35,14 @@ async function fetchRecentTxHashes(address: string): Promise<string[]> {
     });
 
     const transfers: RawTransfer[] = res?.result?.transfers ?? [];
-    const hashes = transfers.map((t) => t.hash).filter((h): h is string => !!h);
+    const hashes = transfers.map((t) => t.hash).filter((h): h is string => Boolean(h));
     return hashes.slice(0, MAX_TX_FOR_GAS);
   } catch {
     return [];
   }
 }
 
-async function fetchGasForTx(hash: string): Promise<{ gasEth: number; to?: string }> {
+async function fetchReceipt(hash: string): Promise<any | null> {
   try {
     const res = await fetchJsonWithTimeout(ALCHEMY_RPC, {
       method: "POST",
@@ -52,26 +54,9 @@ async function fetchGasForTx(hash: string): Promise<{ gasEth: number; to?: strin
         params: [hash],
       }),
     });
-
-    const receipt = res?.result;
-    if (!receipt) return { gasEth: 0 };
-
-    const gasUsedHex = receipt.gasUsed as string | undefined;
-    const effGasPriceHex = receipt.effectiveGasPrice as string | undefined;
-    const gasPriceHex = effGasPriceHex || (receipt.gasPrice as string | undefined);
-    const to = typeof receipt.to === "string" ? receipt.to.toLowerCase() : undefined;
-
-    if (!gasUsedHex || !gasPriceHex) return { gasEth: 0, to };
-
-    const gasUsed = hexToBigInt(gasUsedHex);
-    const gasPrice = hexToBigInt(gasPriceHex);
-    if (gasUsed === 0n || gasPrice === 0n) return { gasEth: 0, to };
-
-    const gasWei = gasUsed * gasPrice;
-    const gasEth = formatUnits(gasWei, 18);
-    return { gasEth: safeFloat(gasEth, 0), to };
+    return res?.result ?? null;
   } catch {
-    return { gasEth: 0 };
+    return null;
   }
 }
 
@@ -104,34 +89,56 @@ export async function buildGasModule(address: string): Promise<GasModule> {
     return { txCount: 0, totalGasEth: 0, totalGasUsd: 0, topTxs: [] };
   }
 
-  const [ethPrice, gasList] = await Promise.all([
+  const [ethPrice, receipts] = await Promise.all([
     getEthPrice(),
-    mapWithConcurrency(hashes, 5, (h) => fetchGasForTx(h)),
+    mapWithConcurrency(hashes, 5, (h) => fetchReceipt(h)),
   ]);
 
-  const gasEntries = hashes
-    .map((hash, idx) => ({
-      hash,
-      gasEth: safeFloat(gasList[idx]?.gasEth ?? 0, 0),
-      to: gasList[idx]?.to,
-    }))
-    .filter((x) => x.gasEth > 0);
+  const entries = await Promise.all(
+    hashes.map(async (hash, idx) => {
+      const receipt = receipts[idx];
+      if (!receipt) return null;
+
+      const gasUsedHex = receipt.gasUsed as string | undefined;
+      const effGasPriceHex = receipt.effectiveGasPrice as string | undefined;
+      const gasPriceHex = effGasPriceHex || (receipt.gasPrice as string | undefined);
+
+      if (!gasUsedHex || !gasPriceHex) return null;
+
+      const gasUsed = hexToBigInt(gasUsedHex);
+      const gasPrice = hexToBigInt(gasPriceHex);
+      if (gasUsed === 0n || gasPrice === 0n) return null;
+
+      const gasWei = gasUsed * gasPrice;
+      const gasEth = safeFloat(formatUnits(gasWei, 18), 0);
+      if (gasEth <= 0) return null;
+
+      const to = (receipt.to as string | undefined) || "";
+      const toDisplay = to ? await getDisplayName(to) : "";
+
+      return { hash, gasEth, to, toDisplay };
+    })
+  );
+
+  const gasEntries = entries.filter(Boolean) as Array<{
+    hash: string;
+    gasEth: number;
+    to: string;
+    toDisplay: string;
+  }>;
 
   const totalGasEth = gasEntries.reduce((sum, x) => sum + x.gasEth, 0);
   const totalGasUsd = safeFloat(totalGasEth * ethPrice, 0);
 
-  const topTxsRaw = gasEntries
+  const topTxs = gasEntries
     .slice()
     .sort((a, b) => b.gasEth - a.gasEth)
     .slice(0, 3);
 
-  const topTxs = await Promise.all(
-    topTxsRaw.map(async (t) => {
-      const to = t.to || "";
-      const toDisplay = to ? await formatAddressWithLabel(to) : "";
-      return { hash: t.hash, gasEth: t.gasEth, to, toDisplay };
-    })
-  );
-
-  return { txCount: hashes.length, totalGasEth, totalGasUsd, topTxs };
+  return {
+    txCount: hashes.length,
+    totalGasEth,
+    totalGasUsd,
+    topTxs,
+  };
 }

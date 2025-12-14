@@ -1,14 +1,9 @@
-// app/api/report/modules/activity.ts — WalletAudit v1.1
-// 行为画像（最近 500 笔，轻量版）
-// - 只看 fromAddress = 钱包地址（主动发起的交易）
-// - 统计：txCount / activeDays / contractsInteracted / topContracts / weeklyHistogram
-//
-// v1.1：Top 合约地址使用 Etherscan 解析标签，输出：ContractName (0x...)
-// 失败则降级：原始地址
+// app/api/report/modules/activity.ts
+// Level 1 行为画像（最近 500 笔，轻量版）
 
 import { fetchJsonWithTimeout } from "../utils/fetch";
 import { ActivityModule } from "./types";
-import { formatAddressWithLabel } from "../utils/etherscan";
+import { getDisplayName } from "./labels";
 
 const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL!;
 
@@ -29,7 +24,7 @@ function toTimestamp(blockTimestamp?: string): number | null {
 
 function getWeekStart(ts: number): number {
   const d = new Date(ts);
-  const day = d.getUTCDay(); // 0=Sunday
+  const day = d.getUTCDay(); // 0 = Sunday
   const diff = (day + 6) % 7; // Monday as 0
   d.setUTCDate(d.getUTCDate() - diff);
   d.setUTCHours(0, 0, 0, 0);
@@ -48,7 +43,7 @@ async function fetchRecentTransfers(address: string): Promise<RawTransfer[]> {
         params: [
           {
             fromAddress: address,
-            maxCount: "0x1f4", // 500
+            maxCount: "0x1f4",
             category: ["external", "erc20", "internal", "erc721", "erc1155"],
             withMetadata: true,
           },
@@ -56,7 +51,7 @@ async function fetchRecentTransfers(address: string): Promise<RawTransfer[]> {
       }),
     });
 
-    return res?.result?.transfers ?? [];
+    return (res?.result?.transfers ?? []) as RawTransfer[];
   } catch {
     return [];
   }
@@ -75,10 +70,10 @@ export async function buildActivityModule(address: string): Promise<ActivityModu
     };
   }
 
-  const lowerAddr = address.toLowerCase();
+  const addrLower = address.toLowerCase();
   const daySet = new Set<string>();
-  const contractMap = new Map<string, number>();
-  const weekMap = new Map<number, number>();
+  const contractMap = new Map<string, number>(); // counterparty -> count
+  const weekMap = new Map<number, number>(); // weekStart -> count
 
   for (const t of transfers) {
     const ts = toTimestamp(t.metadata?.blockTimestamp);
@@ -92,7 +87,7 @@ export async function buildActivityModule(address: string): Promise<ActivityModu
     }
 
     const to = t.to?.toLowerCase();
-    if (to && to !== lowerAddr) {
+    if (to && to !== addrLower) {
       contractMap.set(to, (contractMap.get(to) || 0) + 1);
     }
   }
@@ -101,22 +96,13 @@ export async function buildActivityModule(address: string): Promise<ActivityModu
   const activeDays = daySet.size;
   const contractsInteracted = contractMap.size;
 
-  // Top 3 raw addresses
-  const topRaw = Array.from(contractMap.entries())
+  const topAddresses = Array.from(contractMap.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
     .map(([addr]) => addr);
 
-  // Label resolve
-  const topContracts = await Promise.all(
-    topRaw.map(async (addr) => {
-      try {
-        return await formatAddressWithLabel(addr);
-      } catch {
-        return addr;
-      }
-    })
-  );
+  // ✅ 显示名：本地字典优先 -> Redis(可选) -> Etherscan -> 兜底短地址
+  const topContracts = await Promise.all(topAddresses.map((a) => getDisplayName(a)));
 
   const weeklyHistogram = Array.from(weekMap.entries())
     .sort((a, b) => a[0] - b[0])

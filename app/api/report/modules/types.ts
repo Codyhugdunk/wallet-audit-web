@@ -1,63 +1,78 @@
-// Schema A 全局类型定义（WalletAudit v1.0 + v1.1 人格标签）
+// app/api/report/modules/types.ts
+// ✅ 全模块统一类型定义（v1.1 compatible）
 
-export interface IdentityInfo {
+export type RiskLevel = "Low" | "Medium" | "High";
+
+export interface IdentityModule {
   address: string;
   isContract: boolean;
-  createdAt: number | null; // 时间戳
+  createdAt: number | null; // timestamp(ms) or null
 }
 
 export interface TokenBalance {
-  contractAddress: string;
+  contractAddress: string; // lowercased
   symbol: string;
   amount: number;
-  value: number;
+  value: number; // USD
   decimals: number;
   hasPrice: boolean;
+}
+
+export interface AllocationItem {
+  category: "ETH" | "Stablecoins" | "Majors" | "Meme" | "Others" | string;
+  value: number; // USD
+  ratio: number; // 0~1
 }
 
 export interface AssetModule {
   eth: {
     amount: number;
-    value: number;
+    value: number; // USD
   };
   tokens: TokenBalance[];
-  totalValue: number;
-  allocation: {
-    category: string;
-    value: number;
-    ratio: number;
-  }[];
+  totalValue: number; // USD
+  allocation: AllocationItem[];
   otherTokens: TokenBalance[];
   priceWarning: string | null;
+}
+
+export interface WeeklyHistogramItem {
+  weekStart: number; // timestamp(ms)
+  count: number;
 }
 
 export interface ActivityModule {
   txCount: number;
   activeDays: number;
   contractsInteracted: number;
-  topContracts: string[];
-  weeklyHistogram: { weekStart: number; count: number }[];
+  topContracts: string[]; // already can be "Label (0x...)" or raw address
+  weeklyHistogram: WeeklyHistogramItem[];
+}
+
+export interface GasTopTx {
+  hash: string;
+  gasEth: number;
+  to: string; // raw address
+  toDisplay?: string; // "Label (0x...)" or raw
 }
 
 export interface GasModule {
   txCount: number;
   totalGasEth: number;
   totalGasUsd: number;
-  topTxs: { hash: string; gasEth: number }[];
+  topTxs: GasTopTx[];
 }
 
 export interface RiskModule {
-  level: string;
+  level: RiskLevel;
   score: number;
   comment: string;
   stableRatio: number;
   memeRatio: number;
   otherRatio: number;
   txCount: number;
-
-  // v1.1 钱包人格标签系统
-  personaType: string;      // 例如：稳健型持仓 / 高波动型持仓 / 休眠型地址 等
-  personaTags: string[];    // 一组标签：["稳定币占比较高", "几乎无 Meme 仓位", ...]
+  personaType: string;
+  personaTags: string[];
 }
 
 export interface SummaryModule {
@@ -72,30 +87,4 @@ export interface ShareModule {
   valueChange: number | null;
   valueChangePct: number | null;
   timestamp: number;
-}
-
-export interface ReportMeta {
-  version: string;
-  generatedAt: number;
-  fromCache: boolean;
-  history: { timestamp: number; totalValue: number }[];
-  previousValue: number | null;
-  valueChange: number | null;
-  valueChangePct: number | null;
-}
-
-export interface FullReport {
-  version: string;
-  address: string;
-
-  identity: IdentityInfo;
-  summary: SummaryModule;
-
-  assets: AssetModule;
-  activity: ActivityModule;
-  gas: GasModule;
-  risk: RiskModule;
-  share: ShareModule;
-
-  meta: ReportMeta;
 }
