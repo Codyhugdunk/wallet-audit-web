@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import html2canvas from "html2canvas"; // ✅ 引入截图库
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
 } from "recharts";
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
-  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock
+  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, Share2, Download
 } from "lucide-react";
 
 // ==========================================
@@ -53,7 +54,7 @@ type Report = {
   };
   gas: { txCount: number; totalGasEth: number; totalGasUsd: number; topTxs: { hash: string; gasEth: number }[] };
   risk: { level: string; score: number; comment: string; stableRatio: number; memeRatio: number; otherRatio: number; txCount: number | string; personaType: string; personaTags: string[] };
-  approvals?: { riskCount: number; items: ApprovalItem[] }; // ✅ 新增
+  approvals?: { riskCount: number; items: ApprovalItem[] };
   meta: { version: string; generatedAt: number; };
 };
 
@@ -114,7 +115,11 @@ const DICT = {
     revoke: "取消授权",
     spender: "授权对象",
     amount: "额度",
-    unknownContract: "未知合约"
+    unknownContract: "未知合约",
+    shareBtn: "生成分享图",
+    downloading: "生成中...",
+    shareTitle: "WalletAudit 链上审计报告",
+    scanToUse: "扫码体检你的钱包"
   },
   en: {
     title: "WalletAudit",
@@ -154,7 +159,11 @@ const DICT = {
     revoke: "Revoke",
     spender: "Spender",
     amount: "Amount",
-    unknownContract: "Unknown"
+    unknownContract: "Unknown",
+    shareBtn: "Share Card",
+    downloading: "Generating...",
+    shareTitle: "WalletAudit On-chain Report",
+    scanToUse: "Audit Your Wallet"
   }
 };
 
@@ -197,11 +206,9 @@ function formatEth(wei: string) {
 // 3. 核心功能组件
 // ==========================================
 
-// [组件] 授权风险卡 (New!)
 function ApprovalsCard({ approvals, lang }: { approvals: NonNullable<Report['approvals']>, lang: 'cn' | 'en' }) {
     const D = DICT[lang];
     const hasRisk = approvals.riskCount > 0;
-    
     if (approvals.items.length === 0) return null;
 
     return (
@@ -217,34 +224,21 @@ function ApprovalsCard({ approvals, lang }: { approvals: NonNullable<Report['app
                     </span>
                 )}
             </div>
-
             <div className="space-y-2">
                 {approvals.items.map((item, idx) => (
                     <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-slate-900/40 border border-slate-800/50 text-xs">
-                        {/* 左侧：代币 -> 授权给谁 */}
                         <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-2">
-                                <span className="font-bold text-white bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
-                                    {item.token}
-                                </span>
+                                <span className="font-bold text-white bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">{item.token}</span>
                                 <span className="text-slate-500">➔</span>
-                                <span className={`${item.riskLevel === 'High' ? 'text-red-300' : 'text-slate-300'} font-medium`}>
-                                    {item.spenderName}
-                                </span>
+                                <span className={`${item.riskLevel === 'High' ? 'text-red-300' : 'text-slate-300'} font-medium`}>{item.spenderName}</span>
                             </div>
-                            <span className="text-[10px] text-slate-500 font-mono ml-1">
-                                {item.spender.slice(0, 6)}...{item.spender.slice(-4)}
-                            </span>
+                            <span className="text-[10px] text-slate-500 font-mono ml-1">{item.spender.slice(0, 6)}...{item.spender.slice(-4)}</span>
                         </div>
-                        
-                        {/* 右侧：额度 + 按钮 */}
                         <div className="flex items-center gap-3">
                             <div className="text-right hidden sm:block">
-                                <div className={`font-medium ${item.amount === 'Unlimited' ? 'text-amber-400' : 'text-slate-400'}`}>
-                                    {item.amount}
-                                </div>
+                                <div className={`font-medium ${item.amount === 'Unlimited' ? 'text-amber-400' : 'text-slate-400'}`}>{item.amount}</div>
                             </div>
-                            
                             <a href={`https://revoke.cash/address/${item.spender}`} target="_blank" className="px-3 py-1.5 rounded bg-slate-800 hover:bg-red-900/30 hover:text-red-400 text-slate-400 border border-slate-700 transition flex items-center gap-1">
                                 {D.revoke} <ExternalLink size={10} />
                             </a>
@@ -258,67 +252,46 @@ function ApprovalsCard({ approvals, lang }: { approvals: NonNullable<Report['app
 
 function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address: string, lang: 'cn' | 'en' }) {
   const D = DICT[lang];
-
-  if (!txs || txs.length === 0) {
-      return (
+  if (!txs || txs.length === 0) return (
         <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl p-8 flex flex-col items-center justify-center text-slate-500 h-full min-h-[400px]">
             <Activity size={32} className="opacity-20 mb-2" />
             <span className="text-xs">{D.noTxs}</span>
         </div>
-      )
-  }
+  );
 
   return (
     <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl overflow-hidden flex flex-col h-full min-h-[400px]">
        <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
-          <h3 className="font-bold text-slate-200 text-sm flex items-center gap-2">
-             <Activity size={14} className="text-blue-500" /> {D.recentActivity}
-          </h3>
+          <h3 className="font-bold text-slate-200 text-sm flex items-center gap-2"><Activity size={14} className="text-blue-500" /> {D.recentActivity}</h3>
        </div>
        <div className="flex-1 overflow-y-auto custom-scrollbar p-0">
           {txs.map((tx, idx) => {
              const isIn = tx.to?.toLowerCase() === address.toLowerCase();
              const isError = tx.isError === "1";
              const method = tx.functionName ? tx.functionName.split('(')[0] : (isIn ? 'Receive' : 'Send');
-             
              const ethVal = Number(tx.value) / 1e18;
              const isZero = ethVal < 0.000001;
-
              return (
              <div key={idx} className="flex items-center gap-3 p-3 border-b border-slate-800/50 hover:bg-slate-900/40 transition group">
                 <div className={`p-1.5 rounded-full border transition ${
                     isError ? 'bg-red-900/20 border-red-500/30 text-red-500' :
+                    (method === 'execute' || method === 'executeBatch') ? 'bg-amber-900/20 border-amber-500/30 text-amber-500' :
                     isIn ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-500' : 
                     'bg-slate-800 border-slate-700 text-slate-400'
                 }`}>
-                    {isError ? <AlertCircle size={14} /> : 
-                     (method === 'execute' || method === 'executeBatch') ? <Zap size={14} className="text-yellow-500"/> :
-                     isIn ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}
+                    {isError ? <AlertCircle size={14} /> : (method === 'execute' || method === 'executeBatch') ? <Zap size={14}/> : isIn ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}
                 </div>
-                
                 <div className="flex-1 min-w-0">
                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[11px] font-bold text-slate-300 font-mono truncate max-w-[120px]" title={method}>
-                         {method}
-                      </span>
-                      <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                         <Clock size={10} /> {formatTimeAgo(tx.timestamp * 1000, lang)}
-                      </span>
+                      <span className="text-[11px] font-bold text-slate-300 font-mono truncate max-w-[120px]" title={method}>{method}</span>
+                      <span className="text-[10px] text-slate-500 flex items-center gap-1"><Clock size={10} /> {formatTimeAgo(tx.timestamp * 1000, lang)}</span>
                    </div>
-                   <div className="text-[10px] text-slate-500 font-mono truncate">
-                      {isIn ? `From: ${tx.from.slice(0,6)}...` : `To: ${tx.to?.slice(0,6)}...`}
-                   </div>
+                   <div className="text-[10px] text-slate-500 font-mono truncate">{isIn ? `From: ${tx.from.slice(0,6)}...` : `To: ${tx.to?.slice(0,6)}...`}</div>
                 </div>
-
                 <div className="text-right min-w-[70px]">
-                   <div className={`text-xs font-mono ${isZero ? 'text-slate-600' : 'text-slate-200 font-medium'}`}>
-                      {isZero ? 'Interaction' : `${formatEth(tx.value)} ETH`}
-                   </div>
+                   <div className={`text-xs font-mono ${isZero ? 'text-slate-600' : 'text-slate-200 font-medium'}`}>{isZero ? 'Interaction' : `${formatEth(tx.value)} ETH`}</div>
                 </div>
-                
-                <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" className="text-slate-600 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition">
-                    <ExternalLink size={12} />
-                </a>
+                <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" className="text-slate-600 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition"><ExternalLink size={12} /></a>
              </div>
              )
           })}
@@ -376,7 +349,75 @@ function AssetTable({ assets, lang }: { assets: Report['assets'], lang: 'cn'|'en
 }
 
 // ==========================================
-// 4. 主页面
+// 4. 分享卡片组件 (Hidden)
+// ==========================================
+// 这是一个隐藏的 DOM 结构，专门用来生成图片
+function ShareCardView({ report, lang, targetRef }: { report: Report, lang: 'cn'|'en', targetRef: any }) {
+    const D = DICT[lang];
+    const score = report.risk.score;
+    const isSafe = score >= 80;
+    const color = isSafe ? 'text-emerald-400' : score <= 50 ? 'text-red-500' : 'text-amber-400';
+    const borderColor = isSafe ? 'border-emerald-500' : score <= 50 ? 'border-red-500' : 'border-amber-500';
+
+    return (
+        <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
+            <div ref={targetRef} className="w-[600px] bg-[#050505] p-8 text-slate-100 font-sans border-2 border-slate-800 relative overflow-hidden">
+                {/* 装饰背景 */}
+                <div className={`absolute top-0 right-0 w-[400px] h-[400px] rounded-full blur-[120px] opacity-20 pointer-events-none ${isSafe ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
+                
+                {/* Header */}
+                <div className="flex items-center justify-between mb-8 relative z-10">
+                    <div className="flex items-center gap-2">
+                        <Activity className="text-blue-500" size={24} />
+                        <span className="text-2xl font-bold tracking-tighter text-white">WalletAudit</span>
+                    </div>
+                    <span className="text-xs text-slate-500 font-mono">{new Date().toLocaleDateString()}</span>
+                </div>
+
+                {/* Score & Address */}
+                <div className="text-center mb-10 relative z-10">
+                    <div className={`w-32 h-32 rounded-2xl border-4 ${borderColor} bg-slate-900/50 flex flex-col items-center justify-center mx-auto mb-4`}>
+                        <span className={`text-5xl font-bold font-mono ${color}`}>{score}</span>
+                        <span className="text-[10px] uppercase tracking-widest opacity-70 mt-1">{D.riskScore}</span>
+                    </div>
+                    <h2 className="text-xl font-bold font-mono text-white mb-1">{report.address.slice(0,8)}...{report.address.slice(-6)}</h2>
+                    <div className="inline-block px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-300">
+                        {lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType}
+                    </div>
+                </div>
+
+                {/* Metrics Grid */}
+                <div className="grid grid-cols-2 gap-4 mb-8 relative z-10">
+                    <div className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl">
+                        <div className="text-xs text-slate-500 uppercase mb-1">{D.netWorth}</div>
+                        <div className="text-2xl font-bold text-white">{formatMoney(report.assets.totalValue, lang)}</div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl">
+                        <div className="text-xs text-slate-500 uppercase mb-1">{D.riskCount}</div>
+                        <div className={`text-2xl font-bold ${report.approvals && report.approvals.riskCount > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                            {report.approvals ? report.approvals.riskCount : 0}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="flex items-center justify-between border-t border-slate-800 pt-4 relative z-10">
+                    <div className="flex flex-col">
+                        <span className="text-xs text-slate-500 uppercase">{D.shareTitle}</span>
+                        <span className="text-sm font-bold text-blue-400">walletaudit.me</span>
+                    </div>
+                    <div className="bg-white p-1 rounded">
+                       {/* 这里用一个简单的方块模拟二维码占位 */}
+                       <div className="w-12 h-12 bg-black flex items-center justify-center text-[8px] text-white text-center leading-tight">SCAN<br/>ME</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+// ==========================================
+// 5. 主页面
 // ==========================================
 export default function HomePage() {
   const [lang, setLang] = useState<'cn' | 'en'>('cn');
@@ -386,6 +427,11 @@ export default function HomePage() {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [showNickModal, setShowNickModal] = useState(false);
   const [tempNick, setTempNick] = useState("");
+  
+  // 截图相关
+  const shareRef = useRef<HTMLDivElement>(null);
+  const [generatingImg, setGeneratingImg] = useState(false);
+
   const D = DICT[lang];
 
   useEffect(() => {
@@ -451,13 +497,9 @@ export default function HomePage() {
       const { assets, identity, risk } = report;
       const totalVal = formatMoney(assets.totalValue, lang);
       const ageDate = identity.createdAt ? new Date(identity.createdAt).getFullYear() : null;
-      
-      // ✅ 修复核心资产判断逻辑
+      // ✅ 核心资产判断修复
       const ethVal = assets.eth.value;
-      // 取价值最高的 Token（如果存在）
       const topToken = assets.tokens.length > 0 ? assets.tokens[0] : null;
-      
-      // 如果 ETH 价值大于 Top Token，或者根本没有 Token，核心就是 ETH
       const topAsset = (topToken && topToken.value > ethVal) ? topToken.symbol : "ETH";
       
       let text = "";
@@ -465,7 +507,6 @@ export default function HomePage() {
           text += `此地址目前管理约 ${totalVal} 资产，核心配置为 ${topAsset}。`;
           if (ageDate) text += ` 账户创建于 ${ageDate} 年，`;
           
-          // 特殊处理黑客描述
           if (risk.level === 'High' && risk.score === 0) {
              text += `被标记为「${risk.personaType}」。请务必远离！`;
           } else {
@@ -484,9 +525,34 @@ export default function HomePage() {
       return text;
   };
 
+  // 生成并下载图片
+  const handleShare = async () => {
+      if (!shareRef.current) return;
+      setGeneratingImg(true);
+      try {
+          const canvas = await html2canvas(shareRef.current, {
+              backgroundColor: "#050505",
+              scale: 2, // 高清
+          });
+          const image = canvas.toDataURL("image/png");
+          const link = document.createElement("a");
+          link.href = image;
+          link.download = `WalletAudit-${report?.address.slice(0,6)}.png`;
+          link.click();
+      } catch (e) {
+          console.error("Share gen failed", e);
+          alert("Failed to generate image");
+      } finally {
+          setGeneratingImg(false);
+      }
+  };
+
   return (
     <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20">
       
+      {/* 隐藏的分享卡片渲染区 */}
+      {report && <ShareCardView report={report} lang={lang} targetRef={shareRef} />}
+
       <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -570,10 +636,15 @@ export default function HomePage() {
                       <div>
                           <div className="flex items-center justify-between mb-2">
                              <h1 className="text-xl md:text-2xl font-bold text-white font-mono break-all tracking-tight">{report.address}</h1>
-                             <div className="text-right md:hidden">
-                                <div className="text-xs text-slate-500 uppercase">{D.netWorth}</div>
-                                <div className="text-xl font-bold text-white">{formatMoney(report.assets.totalValue, lang)}</div>
-                             </div>
+                             {/* 分享按钮 (New) */}
+                             <button 
+                                onClick={handleShare}
+                                disabled={generatingImg}
+                                className="md:hidden flex items-center gap-1 bg-slate-800 text-xs px-3 py-1.5 rounded-full border border-slate-700 text-slate-300 hover:text-white"
+                             >
+                                 {generatingImg ? <Clock size={12} className="animate-spin"/> : <Share2 size={12} />}
+                                 {generatingImg ? D.downloading : D.shareBtn}
+                             </button>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                               <span className="text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-800 flex items-center gap-1 text-slate-300">
@@ -583,11 +654,22 @@ export default function HomePage() {
                               <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
                                   {lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType}
                               </span>
+                              
                               <div className="flex gap-1 ml-2 text-slate-500">
                                   <button onClick={() => navigator.clipboard.writeText(report.address)} className="p-1 hover:text-white transition"><Copy size={14} /></button>
                                   <button onClick={() => setShowNickModal(true)} className={`p-1 transition ${isFav?'text-amber-400':'hover:text-amber-400'}`}><Star size={14} fill={isFav?"currentColor":"none"} /></button>
                                   <a href={`https://etherscan.io/address/${report.address}`} target="_blank" className="p-1 hover:text-white transition"><ExternalLink size={14} /></a>
                               </div>
+
+                              {/* 桌面版分享按钮 */}
+                              <button 
+                                onClick={handleShare}
+                                disabled={generatingImg}
+                                className="hidden md:flex ml-auto items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition shadow-lg shadow-blue-900/30"
+                              >
+                                 {generatingImg ? <Clock size={12} className="animate-spin"/> : <Share2 size={14} />}
+                                 {generatingImg ? D.downloading : D.shareBtn}
+                              </button>
                           </div>
                       </div>
 
@@ -640,12 +722,9 @@ export default function HomePage() {
 
             {/* [B] LEFT COLUMN: 资产 & 授权 */}
             <div className="lg:col-span-7 space-y-5">
-                {/* 1. 风险授权卡 (New!) */}
                 {report.approvals && (
                     <ApprovalsCard approvals={report.approvals} lang={lang} />
                 )}
-
-                {/* 2. 资产列表 */}
                 <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl p-5">
                     <h3 className="font-bold text-slate-200 text-sm mb-4 flex items-center gap-2">
                         <Wallet size={16} className="text-blue-500" /> {D.assetsTitle}
@@ -659,8 +738,6 @@ export default function HomePage() {
                 <div className="flex-1">
                     <RealTransactionFeed txs={report.activity.recentTxs} address={report.address} lang={lang} />
                 </div>
-                
-                {/* Pro 广告 */}
                 <a href={TG_CHANNEL_URL} target="_blank" className="block p-5 rounded-xl border border-blue-600/30 bg-gradient-to-br from-blue-900/20 to-black hover:border-blue-500/50 transition group">
                     <div className="flex justify-between items-center mb-2">
                         <h4 className="font-bold text-blue-400 text-sm">Upgrade to PRO</h4>
