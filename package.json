@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@upstash/redis": "^1.35.7",
+    "@vercel/analytics": "^1.6.1",
     "dom-to-image-more": "^3.7.2",
     "html2canvas": "^1.4.1",
     "lucide-react": "^0.561.0",
