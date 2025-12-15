@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-// 注意：移除了 html2canvas，不再需要它
+import { useState, useEffect, useRef, useMemo } from "react";
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
+} from "recharts";
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
   ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, FileText
@@ -62,7 +64,6 @@ type FavoriteItem = { address: string; nickname: string; addedAt: number; tags?:
 // ==========================================
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
 
-// 🔥 首页情报中心数据
 const INTEL_DATA = {
   "Whales": [
     { name: "Justin Sun", address: "0x3DdfA8eC3052539b6C9549F12cEA2C295cfF5296", tag: "孙宇晨" },
@@ -221,33 +222,20 @@ function formatEth(wei: string) {
     return val.toFixed(4);
 }
 
-// ✅ 品牌 Logo 组件 (更新为完整图文版)
-function WalletAuditLogo({ height = 40, className = "" }: { height?: number, className?: string }) {
-  const width = height * 3.75; 
+// ✅ 修复版：只保留图标，移除内部文字，支持自定义大小
+function WalletAuditLogo({ size = 40, className = "" }: { size?: number, className?: string }) {
   return (
-    <svg width={width} height={height} viewBox="0 0 300 80" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-      <g transform="translate(40, 40)">
-        <circle cx="0" cy="0" r="32" fill="#000000"/>
-        <circle cx="0" cy="0" r="24" stroke="#1E40AF" strokeWidth="1.5" strokeOpacity="0.6"/>
-        <circle cx="0" cy="0" r="16" stroke="#1E40AF" strokeWidth="1" strokeOpacity="0.4"/>
-        <path d="M-22 0 H-12 L-6 -16 L6 16 L12 0 H22" stroke="url(#paint0_linear_pulse)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" filter="url(#glow)"/>
-      </g>
-      <text x="88" y="52" fill="#FFFFFF" fontFamily="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontWeight="800" fontSize="36" letterSpacing="-0.03em">WalletAudit</text>
+    <svg width={size} height={size} viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <circle cx="256" cy="256" r="256" fill="url(#paint0_radial_logo)"/>
+      <circle cx="256" cy="256" r="190" stroke="#1D4ED8" strokeWidth="12" strokeOpacity="0.3"/>
+      <circle cx="256" cy="256" r="140" stroke="#3B82F6" strokeWidth="16" strokeOpacity="0.2" strokeDasharray="40 40"/>
+      <path d="M106 256 H156 L206 146 C210 136 222 136 226 146 L286 366 C290 376 302 376 306 366 L356 186 L386 256 H406" stroke="#3B82F6" strokeWidth="24" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.6"/>
+      <path d="M106 256 H156 L206 146 C210 136 222 136 226 146 L286 366 C290 376 302 376 306 366 L356 186 L386 256 H406" stroke="white" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round"/>
       <defs>
-        <linearGradient id="paint0_linear_pulse" x1="-22" y1="0" x2="22" y2="0" gradientUnits="userSpaceOnUse">
-            <stop stopColor="#3B82F6"/>
-            <stop offset="0.5" stopColor="#22D3EE"/>
-            <stop offset="1" stopColor="#60A5FA"/>
-        </linearGradient>
-        <filter id="glow" x="-30" y="-30" width="60" height="60" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
-            <feFlood floodOpacity="0" result="BackgroundImageFix"/>
-            <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
-            <feOffset/>
-            <feGaussianBlur stdDeviation="3"/>
-            <feColorMatrix type="matrix" values="0 0 0 0 0.13 0 0 0 0 0.82 0 0 0 0 0.93 0 0 0 0.8 0"/>
-            <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow"/>
-            <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
-        </filter>
+        <radialGradient id="paint0_radial_logo" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(256 256) rotate(90) scale(256)">
+          <stop stopColor="#0F172A"/>
+          <stop offset="1" stopColor="#000000"/>
+        </radialGradient>
       </defs>
     </svg>
   );
@@ -553,7 +541,9 @@ export default function HomePage() {
       <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <WalletAuditLogo height={24} />
+            {/* ✅ 修复：放大了 Logo，移除了重复文字 */}
+            <WalletAuditLogo size={40} />
+            {/* ✅ 保留：大号文字，与 Logo 并排 */}
             <span className="text-xl font-bold tracking-tighter text-white">WalletAudit</span>
           </div>
           <div className="flex items-center gap-3">
