@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
-  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, FileText
+  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, FileText, Download
 } from "lucide-react";
 
 // ==========================================
@@ -222,20 +222,33 @@ function formatEth(wei: string) {
     return val.toFixed(4);
 }
 
-// ✅ 修复版：只保留图标，移除内部文字，支持自定义大小
-function WalletAuditLogo({ size = 40, className = "" }: { size?: number, className?: string }) {
+// ✅ 品牌 Logo 组件 (更新为完整图文版)
+function WalletAuditLogo({ height = 40, className = "" }: { height?: number, className?: string }) {
+  const width = height * 3.75; 
   return (
-    <svg width={size} height={size} viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-      <circle cx="256" cy="256" r="256" fill="url(#paint0_radial_logo)"/>
-      <circle cx="256" cy="256" r="190" stroke="#1D4ED8" strokeWidth="12" strokeOpacity="0.3"/>
-      <circle cx="256" cy="256" r="140" stroke="#3B82F6" strokeWidth="16" strokeOpacity="0.2" strokeDasharray="40 40"/>
-      <path d="M106 256 H156 L206 146 C210 136 222 136 226 146 L286 366 C290 376 302 376 306 366 L356 186 L386 256 H406" stroke="#3B82F6" strokeWidth="24" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.6"/>
-      <path d="M106 256 H156 L206 146 C210 136 222 136 226 146 L286 366 C290 376 302 376 306 366 L356 186 L386 256 H406" stroke="white" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg width={width} height={height} viewBox="0 0 300 80" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <g transform="translate(40, 40)">
+        <circle cx="0" cy="0" r="32" fill="#000000"/>
+        <circle cx="0" cy="0" r="24" stroke="#1E40AF" strokeWidth="1.5" strokeOpacity="0.6"/>
+        <circle cx="0" cy="0" r="16" stroke="#1E40AF" strokeWidth="1" strokeOpacity="0.4"/>
+        <path d="M-22 0 H-12 L-6 -16 L6 16 L12 0 H22" stroke="url(#paint0_linear_pulse)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" filter="url(#glow)"/>
+      </g>
+      <text x="88" y="52" fill="#FFFFFF" fontFamily="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontWeight="800" fontSize="36" letterSpacing="-0.03em">WalletAudit</text>
       <defs>
-        <radialGradient id="paint0_radial_logo" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(256 256) rotate(90) scale(256)">
-          <stop stopColor="#0F172A"/>
-          <stop offset="1" stopColor="#000000"/>
-        </radialGradient>
+        <linearGradient id="paint0_linear_pulse" x1="-22" y1="0" x2="22" y2="0" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#3B82F6"/>
+            <stop offset="0.5" stopColor="#22D3EE"/>
+            <stop offset="1" stopColor="#60A5FA"/>
+        </linearGradient>
+        <filter id="glow" x="-30" y="-30" width="60" height="60" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+            <feFlood floodOpacity="0" result="BackgroundImageFix"/>
+            <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+            <feOffset/>
+            <feGaussianBlur stdDeviation="3"/>
+            <feColorMatrix type="matrix" values="0 0 0 0 0.13 0 0 0 0 0.82 0 0 0 0 0.93 0 0 0 0.8 0"/>
+            <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow"/>
+            <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
+        </filter>
       </defs>
     </svg>
   );
@@ -396,10 +409,13 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+  
+  // 🔐 访问控制状态
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [accessCode, setAccessCode] = useState("");
   const [showNickModal, setShowNickModal] = useState(false);
   const [tempNick, setTempNick] = useState("");
   
-  // Tab 状态
   const [activeTab, setActiveTab] = useState<keyof typeof INTEL_DATA>("Whales");
 
   const D = DICT[lang];
@@ -492,47 +508,115 @@ export default function HomePage() {
       return text;
   };
 
-  // ✅ 新增：导出 CSV 功能 (Pro Feature)
+  // ✅ 新增：CSV 辅助函数 (转义逗号，防止格式错乱)
+  const safeCSV = (str: string | number) => {
+     if (str === null || str === undefined) return '""';
+     return `"${String(str).replace(/"/g, '""')}"`; // 用引号包裹，并转义内部引号
+  };
+
+  // ✅ 新增：升级版 CSV 导出 (付费墙 + 中英双语 + 专业格式)
   const handleExportCSV = () => {
-      if (!report) return;
-      
-      const headers = ["Type", "Asset/Method", "Value/Amount", "Time", "Details"];
-      const rows = [];
-
-      rows.push(["--- ASSETS ---"]);
-      rows.push(["ETH", "Native ETH", `${formatEth(report.assets.eth.amount.toString())} ETH`, "-", `$${report.assets.eth.value}`]);
-      report.assets.tokens.forEach(t => {
-          rows.push(["Token", t.symbol, `${t.amount} ${t.symbol}`, "-", `$${t.value}`]);
-      });
-
-      rows.push([]);
-      rows.push(["--- RISK & APPROVALS ---"]);
-      rows.push(["Risk Score", report.risk.score + "/100", report.risk.level, "-", report.risk.personaType]);
-      if (report.approvals) {
-          report.approvals.items.forEach(a => {
-              rows.push(["Approval", a.token, a.amount, new Date(a.lastUpdated).toLocaleDateString(), `Spender: ${a.spenderName}`]);
-          });
+      // 🔒 1. 付费墙拦截 (当前硬编码密码: ALPHA888)
+      // 在生产环境中，这里应该调用后端 API 验证
+      if (accessCode !== "ALPHA888") {
+          setShowAuthModal(true);
+          return;
       }
 
+      if (!report) return;
+      
+      const rows = [];
+      const timestamp = new Date().toLocaleString();
+      const filename = `WalletAudit_Report_${report.address.slice(0,6)}.csv`;
+
+      // --- SECTION 1: 报告头 (Header) ---
+      rows.push([safeCSV("WalletAudit Professional Report / 链上专业审计报告")]);
+      rows.push([safeCSV("Generated at / 生成时间"), safeCSV(timestamp)]);
+      rows.push([safeCSV("Target Address / 目标地址"), safeCSV(report.address)]);
+      rows.push([safeCSV("Net Worth / 总资产"), safeCSV(`$${report.assets.totalValue}`)]);
+      rows.push([safeCSV("Risk Score / 风险评分"), safeCSV(report.risk.score + "/100"), safeCSV(report.risk.level)]);
+      rows.push([]); // 空行
+
+      // --- SECTION 2: 资产 (Assets) ---
+      rows.push([safeCSV("--- 1. ASSET HOLDINGS / 资产明细 ---")]);
+      rows.push([
+        safeCSV("Type/类型"), 
+        safeCSV("Symbol/代币"), 
+        safeCSV("Contract/合约"), 
+        safeCSV("Balance/余额"), 
+        safeCSV("Value/估值(USD)")
+      ]);
+      
+      // ETH
+      rows.push([
+        safeCSV("Native"), 
+        safeCSV("ETH"), 
+        safeCSV("-"), 
+        safeCSV(formatEth(report.assets.eth.amount.toString())), 
+        safeCSV(report.assets.eth.value)
+      ]);
+      
+      // Tokens (过滤掉小于 $1 的垃圾，除非它是前5名)
+      report.assets.tokens.forEach((t, idx) => {
+          if (t.value > 1 || idx < 5) {
+             rows.push([
+                safeCSV("ERC20"), 
+                safeCSV(t.symbol), 
+                safeCSV(t.contractAddress), 
+                safeCSV(t.amount), 
+                safeCSV(t.value)
+             ]);
+          }
+      });
       rows.push([]);
-      rows.push(["--- RECENT TRANSACTIONS ---"]);
+
+      // --- SECTION 3: 授权风险 (Approvals) ---
+      rows.push([safeCSV("--- 2. RISK APPROVALS / 风险授权检测 ---")]);
+      if (report.approvals && report.approvals.items.length > 0) {
+          rows.push([safeCSV("Token/代币"), safeCSV("Spender/授权给"), safeCSV("Amount/额度"), safeCSV("Time/时间")]);
+          report.approvals.items.forEach(a => {
+              rows.push([
+                  safeCSV(a.token), 
+                  safeCSV(a.spenderName), 
+                  safeCSV(a.amount), 
+                  safeCSV(new Date(a.lastUpdated).toLocaleDateString())
+              ]);
+          });
+      } else {
+          rows.push([safeCSV("No high-risk approvals detected / 未检测到高危授权")]);
+      }
+      rows.push([]);
+
+      // --- SECTION 4: 交易记录 (Transactions) ---
+      rows.push([safeCSV("--- 3. RECENT ACTIVITY / 近期交易记录 ---")]);
+      rows.push([safeCSV("Method/操作"), safeCSV("Value/金额(ETH)"), safeCSV("Time/时间"), safeCSV("Hash/哈希")]);
+      
       report.activity.recentTxs.forEach(tx => {
           const method = tx.functionName ? tx.functionName.split('(')[0] : "Transfer";
           const val = Number(tx.value) / 1e18;
-          rows.push(["Tx", method, `${val} ETH`, new Date(tx.timestamp * 1000).toLocaleString(), `Hash: ${tx.hash}`]);
+          rows.push([
+              safeCSV(method), 
+              safeCSV(val), 
+              safeCSV(new Date(tx.timestamp * 1000).toLocaleString()), 
+              safeCSV(tx.hash)
+          ]);
       });
 
-      const csvContent = "data:text/csv;charset=utf-8," 
-          + headers.join(",") + "\n" 
-          + rows.map(e => e.join(",")).join("\n");
+      // 组合 CSV 内容 (BOM头防止中文乱码)
+      const csvContent = "\uFEFF" + rows.map(e => e.join(",")).join("\n");
 
-      const encodedUri = encodeURI(csvContent);
+      // 下载
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `WalletAudit_Report_${report.address.slice(0,6)}.csv`);
+      link.href = url;
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      
+      // 成功后关闭弹窗
+      setShowAuthModal(false);
   };
 
   return (
@@ -541,9 +625,7 @@ export default function HomePage() {
       <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {/* ✅ 修复：放大了 Logo，移除了重复文字 */}
-            <WalletAuditLogo size={40} />
-            {/* ✅ 保留：大号文字，与 Logo 并排 */}
+            <WalletAuditLogo height={24} />
             <span className="text-xl font-bold tracking-tighter text-white">WalletAudit</span>
           </div>
           <div className="flex items-center gap-3">
@@ -689,9 +771,13 @@ export default function HomePage() {
                           <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
                              <h1 className="text-lg md:text-2xl font-bold text-white font-mono truncate w-full tracking-tight leading-tight">{report.address}</h1>
                              
-                             {/* ✅ 导出 CSV 按钮 */}
+                             {/* ✅ 导出 CSV 按钮 (Pro) */}
                              <button 
-                                onClick={handleExportCSV}
+                                onClick={() => {
+                                    // 检查是否已经解锁 (这里用一个简单的本地存储标记，或者每次都弹窗)
+                                    // 为了体验好，每次点击都弹窗验证，模拟“付费墙”
+                                    setShowAuthModal(true);
+                                }}
                                 className="self-start md:self-auto flex items-center gap-1.5 bg-emerald-600 border border-emerald-500 hover:bg-emerald-500 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition shrink-0 shadow-lg shadow-emerald-900/20"
                              >
                                  <FileText size={14} /> 
@@ -813,6 +899,59 @@ export default function HomePage() {
                 </div>
             </div>
         )}
+
+        {/* ✅ Pro 访问码验证弹窗 (付费墙) */}
+        {showAuthModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                <div className="bg-[#111] border border-emerald-900/50 rounded-xl p-6 w-full max-w-sm shadow-2xl relative overflow-hidden">
+                    {/* 装饰光效 */}
+                    <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500"></div>
+                    
+                    <div className="text-center mb-6">
+                        <div className="w-12 h-12 bg-emerald-900/20 rounded-full flex items-center justify-center mx-auto mb-3 text-emerald-400">
+                            <Lock size={20} />
+                        </div>
+                        <h3 className="text-lg font-bold text-white mb-2">Unlock Pro Features</h3>
+                        <p className="text-xs text-slate-400">
+                            CSV 导出是 Pro 功能。
+                            <br/>请加入官方群组获取 <b>今日访问码</b>。
+                        </p>
+                    </div>
+
+                    <input 
+                        autoFocus
+                        type="text"
+                        value={accessCode}
+                        onChange={e => setAccessCode(e.target.value.toUpperCase())}
+                        placeholder="ENTER ACCESS CODE"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-center text-sm text-white font-mono tracking-widest outline-none focus:border-emerald-500 mb-4 placeholder:text-slate-600"
+                    />
+
+                    <button 
+                        onClick={handleExportCSV} 
+                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg text-sm transition mb-3"
+                    >
+                        UNLOCK NOW
+                    </button>
+
+                    <a 
+                        href={TG_CHANNEL_URL} 
+                        target="_blank"
+                        className="block text-center text-xs text-slate-500 hover:text-emerald-400 transition"
+                    >
+                        👉 点击加入群组获取密码
+                    </a>
+
+                    <button 
+                        onClick={() => setShowAuthModal(false)}
+                        className="absolute top-3 right-3 text-slate-600 hover:text-white"
+                    >
+                        ✕
+                    </button>
+                </div>
+            </div>
+        )}
+
       </div>
     </main>
   );

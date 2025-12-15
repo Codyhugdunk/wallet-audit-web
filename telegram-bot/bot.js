@@ -1,237 +1,136 @@
-// bot.js - WalletAudit v1.1 Telegram 机器人（带频道引流）
-// 使用示例：node bot.js
+// bot.js - WalletAudit Pro (Bilingual Edition)
+// 启动：node bot.js
 
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const fetch = require('node-fetch');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
-// ===== ① 在这里填你的真实 Bot Token =====
-const BOT_TOKEN = '8592506734:AAEVerAS9RYNE8h4QVAebNK0GULXCRQ9zoE';
+// =================配置区=================
+const BOT_TOKEN = '8592506734:AAEVerAS9RYNE8h4QVAebNK0GULXCRQ9zoE'; 
+const CHANNEL_USERNAME = '@walletaudit'; 
 
-// ===== ② Telegram 代理（如果你本机用 Clash）=====
-const PROXY_URL = 'http://127.0.0.1:7897'; // 按你实际端口改
-const tgAgent = PROXY_URL ? new HttpsProxyAgent(PROXY_URL) : undefined;
-
-// ===== ③ WalletAudit 线上审计接口地址 =====
+// 你的本地代理端口 (Clash)
+const PROXY_URL = 'http://127.0.0.1:7897'; 
 const AUDIT_API_URL = 'https://www.walletaudit.me/api/report';
 
-// ===== ④ 频道用户名（用于文案中展示）=====
-const CHANNEL_HANDLE = 'https://t.me/walletaudit'; // 换成你的频道 username
+// 忽略 SSL 证书错误，确保本地代理能通
+const agent = new HttpsProxyAgent(PROXY_URL);
+agent.options = { rejectUnauthorized: false };
+// =======================================
 
-// ===== 小工具函数 =====
-function shortenAddress(addr) {
-  if (!addr || addr.length <= 10) return addr;
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
-
-function trimZero(numStr) {
-  return numStr.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
-}
-
-// 金额短格式：统一用「万 / 亿」
-function formatUsd(v) {
-  if (!Number.isFinite(v) || v <= 0) return '0';
-  if (v < 1_000) return trimZero(v.toFixed(2));
-  if (v < 10_000) return String(Math.round(v));
-  const wan = v / 10_000;
-  if (wan < 10_000) return `${trimZero(wan.toFixed(2))}万`;
-  const yi = wan / 10_000;
-  return `${trimZero(yi.toFixed(2))}亿`;
-}
-
-function formatPct(ratio) {
-  if (!Number.isFinite(ratio)) return '-';
-  return (ratio * 100).toFixed(1).replace(/\.0$/, '') + '%';
-}
-
-async function fetchReport(address) {
-  const url = `${AUDIT_API_URL}?address=${encodeURIComponent(address)}`;
-  const res = await fetch(url, {
-    agent: tgAgent,
-    timeout: 25_000,
-  });
-
-  if (!res.ok) {
-    let msg = `接口返回错误：${res.status}`;
-    try {
-      const data = await res.json();
-      if (data && data.error) msg = data.error;
-    } catch (_) {}
-    throw new Error(msg);
-  }
-
-  return res.json();
-}
-
-function buildSummaryText(report) {
-  const addr =
-    (report.share && report.share.shortAddr) ||
-    shortenAddress(report.address) ||
-    '未知地址';
-
-  const totalValue =
-    (report.assets && report.assets.totalValue) ||
-    (report.share && report.share.totalValue) ||
-    0;
-  const totalText = formatUsd(totalValue);
-
-  const risk = report.risk || {};
-  const persona = risk.personaType || '钱包持仓地址';
-  const score = risk.score ?? 0;
-  const level = risk.level || 'Unknown';
-
-  const stableRatio = risk.stableRatio ?? 0;
-  const memeRatio = risk.memeRatio ?? 0;
-  const otherRatio = risk.otherRatio ?? 0;
-
-  const riskLabel =
-    level === 'Low'
-      ? '整体风险偏低'
-      : level === 'High'
-      ? '整体风险偏高'
-      : level === 'Medium'
-      ? '整体风险中等'
-      : '';
-
-  const activity = report.activity || {};
-  const txCount = activity.txCount ?? 0;
-  const activeDays = activity.activeDays ?? 0;
-  const contracts = activity.contractsInteracted ?? 0;
-
-  const gas = report.gas || {};
-  const totalGasEth = gas.totalGasEth ?? 0;
-  const totalGasUsd = gas.totalGasUsd ?? 0;
-
-  const lines = [];
-
-  // 报告抬头
-  lines.push(`📊 WalletAudit 钱包体检报告（简版）`);
-  lines.push(`地址：${addr}`);
-  lines.push(
-    `总资产估值：约 ${totalText} 美元 · 人格类型：${persona}`,
-  );
-  lines.push(
-    `风险等级：${level} · 评分：${score}/100${
-      riskLabel ? `（${riskLabel}）` : ''
-    }`,
-  );
-  lines.push('');
-
-  // 资产结构
-  lines.push('💼 资产结构');
-  const ethValue = report.assets?.eth?.value ?? 0;
-  lines.push(`- ETH 估值：${formatUsd(ethValue)} 美元`);
-  lines.push(`- 稳定币占比：${formatPct(stableRatio)}`);
-  lines.push(`- Meme 占比：${formatPct(memeRatio)}`);
-  lines.push(`- 其他资产占比：${formatPct(otherRatio)}`);
-  lines.push('');
-
-  // 行为画像
-  lines.push('🧠 行为画像（近期）');
-  if (txCount > 0) {
-    lines.push(
-      `- 统计期内交易笔数：${txCount} · 活跃天数：${activeDays}`,
-    );
-    lines.push(`- 交互过的合约/地址数量：${contracts}`);
-  } else {
-    lines.push('- 近期几乎没有主动交易行为');
-  }
-  lines.push('');
-
-  // Gas 消耗
-  lines.push('⛽ Gas 消耗（最近 50 笔）');
-  lines.push(
-    `- Gas 总消耗：${totalGasEth.toFixed(5)} ETH ≈ ${formatUsd(
-      totalGasUsd,
-    )} 美元`,
-  );
-  lines.push('');
-
-  // 引流尾巴：网页 + 频道
-  lines.push('🔗 网页版可视化报告：https://www.walletaudit.me/');
-  if (CHANNEL_HANDLE) {
-    lines.push(
-      `📡 更多典型钱包体检 & 工具更新：${CHANNEL_HANDLE}`,
-    );
-  }
-
-  return lines.join('\n');
-}
-
-// ===== 地址处理主逻辑 =====
-async function handleAddress(ctx, address) {
-  const shortAddr = shortenAddress(address);
-
-  await ctx.reply(
-    `⏳ 正在为地址 ${shortAddr} 生成审计报告，请稍候...`,
-  );
-
-  try {
-    const report = await fetchReport(address);
-    const text = buildSummaryText(report);
-    await ctx.reply(text);
-  } catch (err) {
-    console.error('调用 WalletAudit 接口失败：', err);
-    await ctx.reply(
-      `❌ 生成失败：${
-        err && err.message ? err.message : '未知错误'
-      }`,
-    );
-  }
-}
-
-// ===== 启动 Telegraf Bot =====
-if (!BOT_TOKEN || BOT_TOKEN === 'YOUR_REAL_BOT_TOKEN_HERE') {
-  console.error('请先在 bot.js 里把 BOT_TOKEN 替换成你的真实 Telegram Bot Token');
-  process.exit(1);
-}
-
-const bot = new Telegraf(BOT_TOKEN, {
-  telegram: {
-    agent: tgAgent,
-  },
+const bot = new Telegraf(BOT_TOKEN, { 
+    telegram: { agent: agent } 
 });
 
-// /start 命令
+// --- 工具函数：金额转中文万/亿 ---
+function formatMoney(value) {
+  if (!value) return '$0';
+  if (value > 100000000) return `$${(value / 100000000).toFixed(2)}亿`;
+  if (value > 10000) return `$${(value / 10000).toFixed(2)}万`;
+  return `$${Math.round(value).toLocaleString()}`;
+}
+
+// --- 核心逻辑 ---
+
 bot.start((ctx) => {
-  return ctx.reply(
-    [
-      '👋 欢迎使用 WalletAudit · 链上钱包体检机器人',
-      '',
-      '发送任意以太坊地址（0x 开头，42 位），我会帮你生成一份包含：',
-      '· 总资产 & 资产配置概览',
-      '· 近期交易活跃度 & Gas 消耗',
-      '· 风险评分 & 钱包人格标签',
-      '',
-      '你可以先用这些公开地址试一试：',
-      '· 0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8',
-      '· 0x28c6c06298d514db089934071355e5743bf21d60',
-    ].join('\n'),
+  ctx.replyWithHTML(
+    `⚡️ <b>WalletAudit Terminal Online</b>\n\n` +
+    `我是您的链上审计助手。请发送 <b>以太坊地址 (0x...)</b>\n` +
+    `I am your on-chain audit assistant. Send an <b>ETH Address</b>.\n\n` +
+    `👇 <i>Try typing an address now / 请输入地址:</i>`
   );
 });
 
-// 统一入口：任何文本消息走这里，自己判断有没有地址
 bot.on('text', async (ctx) => {
   const txt = (ctx.message.text || '').trim();
-  console.log('收到一条文本消息：', txt);
-
   const match = txt.match(/0x[a-fA-F0-9]{40}/);
-  if (!match) {
-    return ctx.reply(
-      '请发送一个以太坊地址（0x 开头，42 位），例如：\n0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8',
-    );
-  }
+
+  if (!match) return; // 不是地址不回复
 
   const address = match[0];
-  await handleAddress(ctx, address);
+  const loadingMsg = await ctx.reply('⏳ Analyzing on-chain data...\n正在进行链上审计...');
+
+  try {
+    console.log(`正在查询: ${address}`);
+    
+    const res = await fetch(`${AUDIT_API_URL}?address=${address}`, { 
+        agent: agent,
+        timeout: 30000 
+    });
+
+    if (!res.ok) throw new Error('API Error');
+    const data = await res.json();
+    if (!data || data.error) throw new Error(data.error);
+
+    // --- 数据组装 ---
+    
+    // 1. 风险表情
+    const score = data.risk.score;
+    const riskEmoji = score >= 80 ? '🟢' : score <= 50 ? '🔴' : '🟡';
+    const riskText = score >= 80 ? 'Safe (安全)' : score <= 50 ? 'High Risk (高危)' : 'Medium (中等)';
+
+    // 2. 资产数据
+    const totalVal = formatMoney(data.assets.totalValue);
+    const ethAmount = data.assets.eth.amount.toFixed(2);
+    
+    // 3. 授权风险
+    const riskCount = data.approvals ? data.approvals.riskCount : 0;
+    const approvalStatus = riskCount > 0 ? `🚫 ${riskCount} Risky Items` : `✅ Clean`;
+
+    // 4. 交易活跃
+    const txCount = data.activity.txCount;
+
+    // --- 双语报表 (MarkdownV2 格式) ---
+    // 注意：MarkdownV2 特殊字符需要转义，这里用简单的 HTML 模式更稳
+    const msg = 
+      `⚡️ <b>WalletAudit Intelligence</b>\n` +
+      `<code>${data.address}</code>\n\n` +
+
+      `💰 <b>Net Worth (总资产):</b> ${totalVal}\n` +
+      `🛡 <b>Risk Score (评分):</b> ${score}/100 ${riskEmoji}\n` +
+      `🏷 <b>Persona (画像):</b> ${data.risk.personaType}\n\n` +
+      
+      `📂 <b>Portfolio / 资产结构:</b>\n` +
+      `• ETH: ${ethAmount} \n` +
+      `• Tokens: ${data.assets.tokens.length} assets\n\n` +
+
+      `⚠️ <b>Security Check / 安全检测:</b>\n` +
+      `• Approvals (授权): ${approvalStatus}\n` +
+      `• Activity (活跃度): ${txCount} txs\n\n` +
+
+      `👉 <a href="https://www.walletaudit.me?address=${address}"><b>Tap to View Full Report</b></a>\n` +
+      `点击查看完整图表与资金流向`;
+
+    // 发送结果
+    await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id);
+    
+    // 发送带按钮的消息
+    await ctx.replyWithHTML(msg, {
+        disable_web_page_preview: true,
+        ...Markup.inlineKeyboard([
+            [Markup.button.url('🚀 Open Full Report (打开完整报告)', `https://www.walletaudit.me?address=${address}`)],
+            [Markup.button.url('📡 Subscribe Channel (关注频道)', `https://t.me/${CHANNEL_USERNAME.replace('@','')}`)]
+        ])
+    });
+
+    console.log(`✅ 发送成功`);
+
+  } catch (err) {
+    console.error('❌ 报错:', err.message);
+    ctx.telegram.editMessageText(
+      ctx.chat.id, 
+      loadingMsg.message_id, 
+      undefined, 
+      '❌ <b>Scan Failed / 查询失败</b>\nPlease try again later.\n请稍后再试。',
+      { parse_mode: 'HTML' }
+    );
+  }
 });
 
-// 启动 bot
-(async () => {
-  console.log('Telegram bot 即将启动 (WalletAudit 正式版)...');
-  await bot.launch();
-  console.log('Telegram bot 已启动，按 Ctrl+C 停止。');
-})();
+// 启动
+bot.launch().then(() => {
+    console.log('🤖 Bot is running...');
+});
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
