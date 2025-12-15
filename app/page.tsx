@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
-  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, FileText, Download
+  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, FileText, Twitter, Send
 } from "lucide-react";
 
 // ==========================================
@@ -63,6 +63,7 @@ type FavoriteItem = { address: string; nickname: string; addedAt: number; tags?:
 // 2. 数据源 & 字典
 // ==========================================
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
+const TWITTER_URL = "https://x.com/WalletAudit"; // 替换你的推特链接
 
 const INTEL_DATA = {
   "Whales": [
@@ -139,7 +140,9 @@ const DICT = {
     amount: "额度",
     unknownContract: "未知合约",
     exportBtn: "导出 CSV",
-    hotTitle: "热门追踪 🔥"
+    hotTitle: "热门追踪 🔥",
+    footerText: "本工具仅提供链上数据分析，不构成任何投资建议。",
+    footerRights: "© 2025 WalletAudit. All rights reserved."
   },
   en: {
     title: "WalletAudit",
@@ -181,7 +184,9 @@ const DICT = {
     amount: "Amount",
     unknownContract: "Unknown",
     exportBtn: "Export CSV",
-    hotTitle: "Trending Now 🔥"
+    hotTitle: "Trending Now 🔥",
+    footerText: "Data for informational purposes only. Not financial advice.",
+    footerRights: "© 2025 WalletAudit. All rights reserved."
   }
 };
 
@@ -222,7 +227,7 @@ function formatEth(wei: string) {
     return val.toFixed(4);
 }
 
-// ✅ 品牌 Logo 组件 (更新为完整图文版)
+// ✅ 品牌 Logo 组件
 function WalletAuditLogo({ height = 40, className = "" }: { height?: number, className?: string }) {
   const width = height * 3.75; 
   return (
@@ -508,16 +513,15 @@ export default function HomePage() {
       return text;
   };
 
-  // ✅ 新增：CSV 辅助函数 (转义逗号，防止格式错乱)
+  // ✅ 新增：CSV 辅助函数
   const safeCSV = (str: string | number) => {
      if (str === null || str === undefined) return '""';
-     return `"${String(str).replace(/"/g, '""')}"`; // 用引号包裹，并转义内部引号
+     return `"${String(str).replace(/"/g, '""')}"`; 
   };
 
-  // ✅ 新增：升级版 CSV 导出 (付费墙 + 中英双语 + 专业格式)
+  // ✅ 新增：升级版 CSV 导出
   const handleExportCSV = () => {
-      // 🔒 1. 付费墙拦截 (当前硬编码密码: ALPHA888)
-      // 在生产环境中，这里应该调用后端 API 验证
+      // 🔒 付费墙拦截 (CODE: ALPHA888)
       if (accessCode !== "ALPHA888") {
           setShowAuthModal(true);
           return;
@@ -529,83 +533,47 @@ export default function HomePage() {
       const timestamp = new Date().toLocaleString();
       const filename = `WalletAudit_Report_${report.address.slice(0,6)}.csv`;
 
-      // --- SECTION 1: 报告头 (Header) ---
+      // Header
       rows.push([safeCSV("WalletAudit Professional Report / 链上专业审计报告")]);
       rows.push([safeCSV("Generated at / 生成时间"), safeCSV(timestamp)]);
       rows.push([safeCSV("Target Address / 目标地址"), safeCSV(report.address)]);
       rows.push([safeCSV("Net Worth / 总资产"), safeCSV(`$${report.assets.totalValue}`)]);
       rows.push([safeCSV("Risk Score / 风险评分"), safeCSV(report.risk.score + "/100"), safeCSV(report.risk.level)]);
-      rows.push([]); // 空行
+      rows.push([]);
 
-      // --- SECTION 2: 资产 (Assets) ---
+      // Assets
       rows.push([safeCSV("--- 1. ASSET HOLDINGS / 资产明细 ---")]);
-      rows.push([
-        safeCSV("Type/类型"), 
-        safeCSV("Symbol/代币"), 
-        safeCSV("Contract/合约"), 
-        safeCSV("Balance/余额"), 
-        safeCSV("Value/估值(USD)")
-      ]);
-      
-      // ETH
-      rows.push([
-        safeCSV("Native"), 
-        safeCSV("ETH"), 
-        safeCSV("-"), 
-        safeCSV(formatEth(report.assets.eth.amount.toString())), 
-        safeCSV(report.assets.eth.value)
-      ]);
-      
-      // Tokens (过滤掉小于 $1 的垃圾，除非它是前5名)
+      rows.push([safeCSV("Type/类型"), safeCSV("Symbol/代币"), safeCSV("Contract/合约"), safeCSV("Balance/余额"), safeCSV("Value/估值(USD)")]);
+      rows.push([safeCSV("Native"), safeCSV("ETH"), safeCSV("-"), safeCSV(formatEth(report.assets.eth.amount.toString())), safeCSV(report.assets.eth.value)]);
       report.assets.tokens.forEach((t, idx) => {
           if (t.value > 1 || idx < 5) {
-             rows.push([
-                safeCSV("ERC20"), 
-                safeCSV(t.symbol), 
-                safeCSV(t.contractAddress), 
-                safeCSV(t.amount), 
-                safeCSV(t.value)
-             ]);
+             rows.push([safeCSV("ERC20"), safeCSV(t.symbol), safeCSV(t.contractAddress), safeCSV(t.amount), safeCSV(t.value)]);
           }
       });
       rows.push([]);
 
-      // --- SECTION 3: 授权风险 (Approvals) ---
+      // Approvals
       rows.push([safeCSV("--- 2. RISK APPROVALS / 风险授权检测 ---")]);
       if (report.approvals && report.approvals.items.length > 0) {
           rows.push([safeCSV("Token/代币"), safeCSV("Spender/授权给"), safeCSV("Amount/额度"), safeCSV("Time/时间")]);
           report.approvals.items.forEach(a => {
-              rows.push([
-                  safeCSV(a.token), 
-                  safeCSV(a.spenderName), 
-                  safeCSV(a.amount), 
-                  safeCSV(new Date(a.lastUpdated).toLocaleDateString())
-              ]);
+              rows.push([safeCSV(a.token), safeCSV(a.spenderName), safeCSV(a.amount), safeCSV(new Date(a.lastUpdated).toLocaleDateString())]);
           });
       } else {
           rows.push([safeCSV("No high-risk approvals detected / 未检测到高危授权")]);
       }
       rows.push([]);
 
-      // --- SECTION 4: 交易记录 (Transactions) ---
+      // Activity
       rows.push([safeCSV("--- 3. RECENT ACTIVITY / 近期交易记录 ---")]);
       rows.push([safeCSV("Method/操作"), safeCSV("Value/金额(ETH)"), safeCSV("Time/时间"), safeCSV("Hash/哈希")]);
-      
       report.activity.recentTxs.forEach(tx => {
           const method = tx.functionName ? tx.functionName.split('(')[0] : "Transfer";
           const val = Number(tx.value) / 1e18;
-          rows.push([
-              safeCSV(method), 
-              safeCSV(val), 
-              safeCSV(new Date(tx.timestamp * 1000).toLocaleString()), 
-              safeCSV(tx.hash)
-          ]);
+          rows.push([safeCSV(method), safeCSV(val), safeCSV(new Date(tx.timestamp * 1000).toLocaleString()), safeCSV(tx.hash)]);
       });
 
-      // 组合 CSV 内容 (BOM头防止中文乱码)
       const csvContent = "\uFEFF" + rows.map(e => e.join(",")).join("\n");
-
-      // 下载
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -614,13 +582,11 @@ export default function HomePage() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
-      // 成功后关闭弹窗
       setShowAuthModal(false);
   };
 
   return (
-    <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20">
+    <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30">
       
       <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
@@ -639,8 +605,9 @@ export default function HomePage() {
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6 pb-32">
         
+        {/* Search & Tabs */}
         <section className="max-w-4xl mx-auto space-y-4">
             <div className="text-center mb-8">
                 <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">
@@ -667,22 +634,18 @@ export default function HomePage() {
                 </div>
             </form>
 
-            {/* 🔥 新增：情报中心 (Tab 切换版) */}
             <div className="px-2 mt-6">
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
                         <Flame size={12} className="text-orange-500" /> {D.hotTitle}
                     </div>
-                    {/* Tabs */}
                     <div className="flex gap-1 bg-slate-900/50 p-1 rounded-lg border border-slate-800">
                         {(Object.keys(INTEL_DATA) as Array<keyof typeof INTEL_DATA>).map(tab => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
                                 className={`px-3 py-1 text-[10px] rounded-md transition ${
-                                    activeTab === tab 
-                                    ? 'bg-slate-800 text-white shadow-sm' 
-                                    : 'text-slate-500 hover:text-slate-300'
+                                    activeTab === tab ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
                                 }`}
                             >
                                 {tab}
@@ -691,7 +654,6 @@ export default function HomePage() {
                     </div>
                 </div>
                 
-                {/* Address Grid */}
                 <div className="grid grid-cols-2 gap-2">
                     {INTEL_DATA[activeTab].map(w => (
                         <button 
@@ -704,11 +666,9 @@ export default function HomePage() {
                                 <span className="text-[9px] text-slate-600 font-mono truncate">{w.address.slice(0,6)}...</span>
                             </div>
                             <span className={`text-[9px] px-1.5 py-0.5 rounded border whitespace-nowrap ${
-                                activeTab === 'Hackers' 
-                                ? 'bg-red-950/30 border-red-900/50 text-red-400' 
-                                : activeTab === 'Institutions'
-                                ? 'bg-blue-950/30 border-blue-900/50 text-blue-400'
-                                : 'bg-slate-800 border-slate-700 text-slate-500'
+                                activeTab === 'Hackers' ? 'bg-red-950/30 border-red-900/50 text-red-400' : 
+                                activeTab === 'Institutions' ? 'bg-blue-950/30 border-blue-900/50 text-blue-400' : 
+                                'bg-slate-800 border-slate-700 text-slate-500'
                             }`}>
                                 {w.tag}
                             </span>
@@ -717,7 +677,6 @@ export default function HomePage() {
                 </div>
             </div>
 
-            {/* 用户本地收藏 */}
             {favorites.length > 0 && (
                 <div className="px-2 pt-2 border-t border-slate-800/50 mt-6">
                     <div className="flex items-center gap-2 text-xs text-slate-500 mb-2 font-medium">
@@ -727,9 +686,7 @@ export default function HomePage() {
                         {favorites.map(fav => (
                             <div key={fav.address} onClick={() => loadFav(fav.address)} className="group flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-full px-3 py-1.5 hover:border-blue-500/50 hover:bg-slate-800 transition cursor-pointer select-none">
                                 <span className="text-[11px] text-slate-300 font-medium">{fav.nickname}</span>
-                                <button onClick={(e) => { e.stopPropagation(); removeFavorite(fav.address); }} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition">
-                                    <Trash2 size={11} />
-                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); removeFavorite(fav.address); }} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"><Trash2 size={11} /></button>
                             </div>
                         ))}
                     </div>
@@ -739,7 +696,7 @@ export default function HomePage() {
 
         {report && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* [A] HERO SECTION */}
+            {/* Report Content */}
             <div className="lg:col-span-12 bg-[#0a0a0a] border border-slate-800 rounded-2xl p-6 relative overflow-hidden shadow-2xl">
                <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-blue-600/5 rounded-full blur-[100px] pointer-events-none"></div>
                <div className="flex flex-col md:flex-row gap-6 relative z-10">
@@ -758,8 +715,6 @@ export default function HomePage() {
                               )
                           })()}
                       </div>
-                      
-                      {/* Mobile Asset Display */}
                       <div className="md:hidden text-right">
                           <div className="text-xs text-slate-500 uppercase">{D.netWorth}</div>
                           <div className="text-xl font-bold text-white font-mono">{formatMoney(report.assets.totalValue, lang)}</div>
@@ -771,28 +726,20 @@ export default function HomePage() {
                           <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
                              <h1 className="text-lg md:text-2xl font-bold text-white font-mono truncate w-full tracking-tight leading-tight">{report.address}</h1>
                              
-                             {/* ✅ 导出 CSV 按钮 (Pro) */}
                              <button 
-                                onClick={() => {
-                                    // 检查是否已经解锁 (这里用一个简单的本地存储标记，或者每次都弹窗)
-                                    // 为了体验好，每次点击都弹窗验证，模拟“付费墙”
-                                    setShowAuthModal(true);
-                                }}
+                                onClick={handleExportCSV}
                                 className="self-start md:self-auto flex items-center gap-1.5 bg-emerald-600 border border-emerald-500 hover:bg-emerald-500 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition shrink-0 shadow-lg shadow-emerald-900/20"
                              >
-                                 <FileText size={14} /> 
-                                 {D.exportBtn}
+                                 <FileText size={14} /> {D.exportBtn}
                              </button>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                               <span className="text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-800 flex items-center gap-1 text-slate-300">
-                                  {report.identity.isContract ? <Activity size={12} /> : <Wallet size={12} />}
-                                  {report.identity.isContract ? D.contract : D.wallet}
+                                  {report.identity.isContract ? <Activity size={12} /> : <Wallet size={12} />} {report.identity.isContract ? D.contract : D.wallet}
                               </span>
                               <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
                                   {lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType}
                               </span>
-                              
                               <div className="flex gap-1 ml-1 text-slate-500">
                                   <button onClick={() => navigator.clipboard.writeText(report.address)} className="p-1 hover:text-white transition"><Copy size={14} /></button>
                                   <button onClick={() => setShowNickModal(true)} className={`p-1 transition ${isFav?'text-amber-400':'hover:text-amber-400'}`}><Star size={14} fill={isFav?"currentColor":"none"} /></button>
@@ -802,81 +749,39 @@ export default function HomePage() {
                       </div>
 
                       <div className="p-3 bg-slate-900/40 rounded-lg border border-slate-800/50 text-xs md:text-sm text-slate-300 leading-relaxed font-sans">
-                         <span className="text-blue-400 font-bold mr-2">⚡️ Insight:</span>
-                         {getSummaryText()}
+                         <span className="text-blue-400 font-bold mr-2">⚡️ Insight:</span> {getSummaryText()}
                       </div>
 
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
-                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
-                            <Zap size={14} className="text-yellow-500 shrink-0" />
-                            <div className="min-w-0">
-                               <div className="text-[10px] text-slate-500 uppercase truncate">{D.metricTx}</div>
-                               <div className="text-sm font-mono font-bold truncate">{report.activity.txCount}</div>
-                            </div>
-                         </div>
-                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
-                            <Calendar size={14} className="text-blue-500 shrink-0" />
-                            <div className="min-w-0">
-                               <div className="text-[10px] text-slate-500 uppercase truncate">{D.metricDays}</div>
-                               <div className="text-sm font-mono font-bold truncate">{report.activity.activeDays}</div>
-                            </div>
-                         </div>
-                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
-                            <Flame size={14} className="text-orange-500 shrink-0" />
-                            <div className="min-w-0">
-                               <div className="text-[10px] text-slate-500 uppercase truncate">{D.metricGas}</div>
-                               <div className="text-sm font-mono font-bold truncate">{formatMoney(report.gas.totalGasUsd, lang)}</div>
-                            </div>
-                         </div>
-                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
-                            <Layers size={14} className="text-purple-500 shrink-0" />
-                            <div className="min-w-0">
-                               <div className="text-[10px] text-slate-500 uppercase truncate">{D.metricInteract}</div>
-                               <div className="text-sm font-mono font-bold truncate">{report.activity.contractsInteracted}</div>
-                            </div>
-                         </div>
+                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50"><Zap size={14} className="text-yellow-500 shrink-0" /><div className="min-w-0"><div className="text-[10px] text-slate-500 uppercase truncate">{D.metricTx}</div><div className="text-sm font-mono font-bold truncate">{report.activity.txCount}</div></div></div>
+                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50"><Calendar size={14} className="text-blue-500 shrink-0" /><div className="min-w-0"><div className="text-[10px] text-slate-500 uppercase truncate">{D.metricDays}</div><div className="text-sm font-mono font-bold truncate">{report.activity.activeDays}</div></div></div>
+                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50"><Flame size={14} className="text-orange-500 shrink-0" /><div className="min-w-0"><div className="text-[10px] text-slate-500 uppercase truncate">{D.metricGas}</div><div className="text-sm font-mono font-bold truncate">{formatMoney(report.gas.totalGasUsd, lang)}</div></div></div>
+                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50"><Layers size={14} className="text-purple-500 shrink-0" /><div className="min-w-0"><div className="text-[10px] text-slate-500 uppercase truncate">{D.metricInteract}</div><div className="text-sm font-mono font-bold truncate">{report.activity.contractsInteracted}</div></div></div>
                       </div>
                   </div>
-
                   <div className="hidden md:block text-right min-w-[120px]">
                       <div className="text-[11px] text-slate-500 uppercase tracking-widest mb-1">{D.netWorth}</div>
                       <div className="text-3xl font-bold text-white font-mono tracking-tight">{formatMoney(report.assets.totalValue, lang)}</div>
-                      <div className="text-[11px] text-slate-400 mt-2 font-mono">
-                          {D.firstActive}: {report.identity.createdAt ? new Date(report.identity.createdAt).toLocaleDateString() : D.unknownDate}
-                      </div>
+                      <div className="text-[11px] text-slate-400 mt-2 font-mono">{D.firstActive}: {report.identity.createdAt ? new Date(report.identity.createdAt).toLocaleDateString() : D.unknownDate}</div>
                   </div>
                </div>
             </div>
 
-            {/* [B] LEFT COLUMN: 资产 & 授权 */}
             <div className="lg:col-span-7 space-y-5">
-                {report.approvals && (
-                    <ApprovalsCard approvals={report.approvals} lang={lang} />
-                )}
+                {report.approvals && <ApprovalsCard approvals={report.approvals} lang={lang} />}
                 <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl p-5">
-                    <h3 className="font-bold text-slate-200 text-sm mb-4 flex items-center gap-2">
-                        <Wallet size={16} className="text-blue-500" /> {D.assetsTitle}
-                    </h3>
+                    <h3 className="font-bold text-slate-200 text-sm mb-4 flex items-center gap-2"><Wallet size={16} className="text-blue-500" /> {D.assetsTitle}</h3>
                     <AssetTable assets={report.assets} lang={lang} />
                 </div>
             </div>
 
-            {/* [C] RIGHT COLUMN: 真实交易流 */}
             <div className="lg:col-span-5 flex flex-col gap-5">
-                <div className="flex-1">
-                    <RealTransactionFeed txs={report.activity.recentTxs} address={report.address} lang={lang} />
-                </div>
+                <div className="flex-1"><RealTransactionFeed txs={report.activity.recentTxs} address={report.address} lang={lang} /></div>
                 <a href={TG_CHANNEL_URL} target="_blank" className="block p-5 rounded-xl border border-blue-600/30 bg-gradient-to-br from-blue-900/20 to-black hover:border-blue-500/50 transition group">
-                    <div className="flex justify-between items-center mb-2">
-                        <h4 className="font-bold text-blue-400 text-sm">Upgrade to PRO</h4>
-                        <ArrowUpRight size={16} className="text-blue-500 group-hover:translate-x-1 group-hover:-translate-y-1 transition" />
-                    </div>
-                    <p className="text-xs text-slate-400 leading-relaxed">
-                        {lang === 'cn' ? '解锁完整资金流向图谱、无限期交易历史与实时巨鲸异动推送。' : 'Unlock full fund flow graph, unlimited history and real-time whale alerts.'}
-                    </p>
+                    <div className="flex justify-between items-center mb-2"><h4 className="font-bold text-blue-400 text-sm">Upgrade to PRO</h4><ArrowUpRight size={16} className="text-blue-500 group-hover:translate-x-1 group-hover:-translate-y-1 transition" /></div>
+                    <p className="text-xs text-slate-400 leading-relaxed">{lang === 'cn' ? '解锁完整资金流向图谱、无限期交易历史与实时巨鲸异动推送。' : 'Unlock full fund flow graph, unlimited history and real-time whale alerts.'}</p>
                 </a>
             </div>
-
           </div>
         )}
 
@@ -885,13 +790,7 @@ export default function HomePage() {
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                 <div className="bg-[#111] border border-slate-800 rounded-xl p-6 w-full max-w-sm shadow-2xl">
                     <h3 className="text-lg font-bold text-white mb-4">{D.setNickname}</h3>
-                    <input 
-                        autoFocus
-                        value={tempNick}
-                        onChange={e => setTempNick(e.target.value)}
-                        placeholder="e.g. Smart Money / Hacker..."
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white outline-none focus:border-blue-500 mb-6"
-                    />
+                    <input autoFocus value={tempNick} onChange={e => setTempNick(e.target.value)} placeholder="e.g. Smart Money / Hacker..." className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white outline-none focus:border-blue-500 mb-6"/>
                     <div className="flex gap-3">
                         <button onClick={() => setShowNickModal(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2.5 rounded-lg text-sm font-medium transition">{D.cancel}</button>
                         <button onClick={saveFavorite} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-lg text-sm font-medium transition">{D.confirm}</button>
@@ -900,57 +799,33 @@ export default function HomePage() {
             </div>
         )}
 
-        {/* ✅ Pro 访问码验证弹窗 (付费墙) */}
+        {/* 🔐 Pro 访问码验证弹窗 */}
         {showAuthModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                 <div className="bg-[#111] border border-emerald-900/50 rounded-xl p-6 w-full max-w-sm shadow-2xl relative overflow-hidden">
-                    {/* 装饰光效 */}
                     <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500"></div>
-                    
                     <div className="text-center mb-6">
-                        <div className="w-12 h-12 bg-emerald-900/20 rounded-full flex items-center justify-center mx-auto mb-3 text-emerald-400">
-                            <Lock size={20} />
-                        </div>
+                        <div className="w-12 h-12 bg-emerald-900/20 rounded-full flex items-center justify-center mx-auto mb-3 text-emerald-400"><Lock size={20} /></div>
                         <h3 className="text-lg font-bold text-white mb-2">Unlock Pro Features</h3>
-                        <p className="text-xs text-slate-400">
-                            CSV 导出是 Pro 功能。
-                            <br/>请加入官方群组获取 <b>今日访问码</b>。
-                        </p>
+                        <p className="text-xs text-slate-400">CSV 导出是 Pro 功能。<br/>请加入官方群组获取 <b>今日访问码</b>。</p>
                     </div>
-
-                    <input 
-                        autoFocus
-                        type="text"
-                        value={accessCode}
-                        onChange={e => setAccessCode(e.target.value.toUpperCase())}
-                        placeholder="ENTER ACCESS CODE"
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-center text-sm text-white font-mono tracking-widest outline-none focus:border-emerald-500 mb-4 placeholder:text-slate-600"
-                    />
-
-                    <button 
-                        onClick={handleExportCSV} 
-                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg text-sm transition mb-3"
-                    >
-                        UNLOCK NOW
-                    </button>
-
-                    <a 
-                        href={TG_CHANNEL_URL} 
-                        target="_blank"
-                        className="block text-center text-xs text-slate-500 hover:text-emerald-400 transition"
-                    >
-                        👉 点击加入群组获取密码
-                    </a>
-
-                    <button 
-                        onClick={() => setShowAuthModal(false)}
-                        className="absolute top-3 right-3 text-slate-600 hover:text-white"
-                    >
-                        ✕
-                    </button>
+                    <input autoFocus type="text" value={accessCode} onChange={e => setAccessCode(e.target.value.toUpperCase())} placeholder="ENTER ACCESS CODE" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-center text-sm text-white font-mono tracking-widest outline-none focus:border-emerald-500 mb-4 placeholder:text-slate-600"/>
+                    <button onClick={handleExportCSV} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg text-sm transition mb-3">UNLOCK NOW</button>
+                    <a href={TG_CHANNEL_URL} target="_blank" className="block text-center text-xs text-slate-500 hover:text-emerald-400 transition">👉 点击加入群组获取密码</a>
+                    <button onClick={() => setShowAuthModal(false)} className="absolute top-3 right-3 text-slate-600 hover:text-white">✕</button>
                 </div>
             </div>
         )}
+
+        {/* ✅ 页脚 (Route C) */}
+        <footer className="border-t border-slate-900 mt-20 py-8 text-center text-slate-600">
+            <div className="flex justify-center items-center gap-4 mb-4">
+                <a href="https://x.com/WalletAudit" target="_blank" className="hover:text-white transition"><Twitter size={18} /></a>
+                <a href="https://t.me/walletaudit" target="_blank" className="hover:text-white transition"><Send size={18} /></a>
+            </div>
+            <p className="text-xs mb-2">{D.footerText}</p>
+            <p className="text-[10px] font-mono">{D.footerRights}</p>
+        </footer>
 
       </div>
     </main>
