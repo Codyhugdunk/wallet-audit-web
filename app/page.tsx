@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
-// 引入页面本身需要的图标 (你提到的 Trash2 就在这里)
+// ✅ 1. 补全了 ArrowUpRight，防止 Pro 广告卡片报错
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
-  ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, Calendar, Flame, Layers, ShieldAlert, Lock, Share2
+  Clock, Zap, Calendar, Flame, Layers, Share2, ArrowUpRight
 } from "lucide-react";
 
 // 引入拆分好的组件和工具
@@ -20,7 +20,7 @@ import { ShareCardView } from "./components/report/ShareCardView";
 
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
 
-// 定义 Report 类型 (与 types.ts 保持一致，这里简化引用)
+// 定义 Report 类型
 type Report = any;
 type FavoriteItem = { address: string; nickname: string; addedAt: number; tags?: string[] };
 
@@ -148,10 +148,9 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20">
-      {/* 隐藏的分享卡片渲染区 */}
+      
       {report && <ShareCardView report={report} lang={lang} targetRef={shareRef} />}
 
-      {/* 导航栏 */}
       <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -169,10 +168,8 @@ export default function HomePage() {
         </div>
       </nav>
 
-      {/* 核心内容区 */}
       <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
         
-        {/* 搜索与热门 */}
         <section className="max-w-4xl mx-auto space-y-4">
             <div className="text-center mb-8">
                 <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">
@@ -199,9 +196,9 @@ export default function HomePage() {
                 </div>
             </form>
 
+            {/* ✅ 2. 移除了 lang={lang}，修复报错 */}
             <TrendingWallets title={D.hotWallets} onLoad={loadFav} />
 
-            {/* 本地收藏列表 */}
             {favorites.length > 0 && (
                 <div className="px-2 pt-2 border-t border-slate-800/50 mt-2">
                     <div className="flex items-center gap-2 text-xs text-slate-500 mb-2 font-medium">
@@ -211,7 +208,6 @@ export default function HomePage() {
                         {favorites.map(fav => (
                             <div key={fav.address} onClick={() => loadFav(fav.address)} className="group flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-full px-3 py-1.5 hover:border-blue-500/50 hover:bg-slate-800 transition cursor-pointer select-none">
                                 <span className="text-[11px] text-slate-300 font-medium">{fav.nickname}</span>
-                                {/* ✅ 修复 Trash2 图标使用 */}
                                 <button onClick={(e) => { e.stopPropagation(); removeFavorite(fav.address); }} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition">
                                     <Trash2 size={11} />
                                 </button>
@@ -222,7 +218,6 @@ export default function HomePage() {
             )}
         </section>
 
-        {/* 报告主体 */}
         {report && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Hero Section */}
@@ -244,6 +239,7 @@ export default function HomePage() {
                               )
                           })()}
                       </div>
+                      
                       <div className="md:hidden text-right">
                           <div className="text-xs text-slate-500 uppercase">{D.netWorth}</div>
                           <div className="text-xl font-bold text-white font-mono">{formatMoney(report.assets.totalValue, lang)}</div>
@@ -254,6 +250,7 @@ export default function HomePage() {
                       <div>
                           <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
                              <h1 className="text-lg md:text-2xl font-bold text-white font-mono truncate w-full tracking-tight leading-tight">{report.address}</h1>
+                             
                              <button 
                                 onClick={handleShare}
                                 disabled={generatingImg}
@@ -326,17 +323,16 @@ export default function HomePage() {
                </div>
             </div>
 
-            {/* Left Col: Approvals & Assets */}
             <div className="lg:col-span-7 space-y-5">
                 {report.approvals && <ApprovalsCard approvals={report.approvals} lang={lang} />}
                 <AssetTable assets={report.assets} lang={lang} />
             </div>
 
-            {/* Right Col: Txs & Pro Ad */}
             <div className="lg:col-span-5 flex flex-col gap-5">
                 <div className="flex-1">
                     <RealTransactionFeed txs={report.activity.recentTxs} address={report.address} lang={lang} />
                 </div>
+                {/* 底部 Pro 广告，这里用到 ArrowUpRight */}
                 <a href={TG_CHANNEL_URL} target="_blank" className="block p-5 rounded-xl border border-blue-600/30 bg-gradient-to-br from-blue-900/20 to-black hover:border-blue-500/50 transition group">
                     <div className="flex justify-between items-center mb-2">
                         <h4 className="font-bold text-blue-400 text-sm">Upgrade to PRO</h4>

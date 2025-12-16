@@ -1,7 +1,7 @@
 import { DICT, PERSONA_MAP } from "../../utils/dictionary";
 import { formatMoney } from "../../utils/format";
 
-// 简单的类型定义，防止 TS 报错
+// 简单的类型定义
 interface ShareReport {
     risk: { score: number; personaType: string };
     address: string;
@@ -9,11 +9,13 @@ interface ShareReport {
     approvals?: { riskCount: number };
 }
 
+// ✅ 修复版：纯 CSS 样式，无 Tailwind，无外部图标组件
 export function ShareCardView({ report, lang, targetRef }: { report: ShareReport, lang: 'cn'|'en', targetRef: any }) {
     const D = DICT[lang];
     const score = report.risk.score;
     const isSafe = score >= 80;
     
+    // 纯 HEX 颜色
     const bgMain = '#0a0a0a'; 
     const textWhite = '#ffffff';
     const textMuted = '#94a3b8'; 
@@ -24,15 +26,33 @@ export function ShareCardView({ report, lang, targetRef }: { report: ShareReport
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, zIndex: -9999, opacity: 0, pointerEvents: 'none' }}>
-            <div ref={targetRef} style={{ width: '400px', backgroundColor: bgMain, padding: '24px', fontFamily: 'sans-serif', border: '1px solid #333', borderRadius: '16px', position: 'relative', display: 'flex', flexDirection: 'column', gap: '24px', overflow: 'hidden' }}>
+            <div ref={targetRef} style={{
+                width: '400px', 
+                backgroundColor: bgMain,
+                padding: '24px',
+                fontFamily: 'sans-serif',
+                border: '1px solid #333',
+                borderRadius: '16px',
+                position: 'relative',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '24px',
+                overflow: 'hidden'
+            }}>
                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', backgroundColor: accentColor }}></div>
                 <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '200px', height: '200px', backgroundColor: bgGlowHex, filter: 'blur(80px)', opacity: 0.4, zIndex: 0 }}></div>
+
+                {/* Header: 纯 SVG 图标 */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', position: 'relative', zIndex: 10 }}>
                     <div style={{ fontSize: '20px', fontWeight: '900', color: textWhite, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '20px' }}>⚡️</span> WalletAudit
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+                        </svg>
+                        WalletAudit
                     </div>
                     <div style={{ fontSize: '12px', color: textMuted }}>{new Date().toLocaleDateString()}</div>
                 </div>
+
                 <div style={{ textAlign: 'center', padding: '20px 0', borderBottom: '1px solid #333', position: 'relative', zIndex: 10 }}>
                     <div style={{ fontSize: '12px', color: textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>{D.riskScore}</div>
                     <div style={{ fontSize: '64px', fontWeight: 'bold', color: accentColor, lineHeight: '1' }}>{score}</div>
@@ -40,6 +60,7 @@ export function ShareCardView({ report, lang, targetRef }: { report: ShareReport
                         {lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType}
                     </div>
                 </div>
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', position: 'relative', zIndex: 10 }}>
                     <div style={{ backgroundColor: bgCard, padding: '16px', borderRadius: '12px', border: `1px solid ${borderCard}` }}>
                         <div style={{ fontSize: '10px', color: textMuted, textTransform: 'uppercase' }}>{D.netWorth}</div>
@@ -47,9 +68,12 @@ export function ShareCardView({ report, lang, targetRef }: { report: ShareReport
                     </div>
                     <div style={{ backgroundColor: bgCard, padding: '16px', borderRadius: '12px', border: `1px solid ${borderCard}` }}>
                         <div style={{ fontSize: '10px', color: textMuted, textTransform: 'uppercase' }}>{D.riskCount}</div>
-                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: report.approvals && report.approvals.riskCount > 0 ? '#f87171' : accentColor, marginTop: '4px' }}>{report.approvals ? report.approvals.riskCount : 0}</div>
+                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: report.approvals && report.approvals.riskCount > 0 ? '#f87171' : accentColor, marginTop: '4px' }}>
+                            {report.approvals ? report.approvals.riskCount : 0}
+                        </div>
                     </div>
                 </div>
+
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', position: 'relative', zIndex: 10 }}>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '10px', color: textMuted }}>{D.scanToUse}</span>
