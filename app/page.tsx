@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
-// ✅ 1. 补全了 ArrowUpRight，防止 Pro 广告卡片报错
+// ✅ 核心修复：把所有红线的图标都加进来
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
-  Clock, Zap, Calendar, Flame, Layers, Share2, ArrowUpRight
+  ArrowUpRight, Twitter, Send, Clock, Share2,
+  Zap, Calendar, Flame, Layers, ShieldAlert, Lock // <--- 补齐了这些
 } from "lucide-react";
 
-// 引入拆分好的组件和工具
+// ✅ 正确引用你已经拆分好的组件和工具
+// 注意：这里假设你的目录结构是 app/utils 和 app/components
 import { DICT, PERSONA_MAP } from "./utils/dictionary";
 import { formatMoney } from "./utils/format";
 import { WalletAuditLogo } from "./components/ui/WalletAuditLogo";
@@ -19,8 +21,9 @@ import { AssetTable } from "./components/report/AssetTable";
 import { ShareCardView } from "./components/report/ShareCardView";
 
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
+const TWITTER_URL = "https://x.com/PhilWong19";
 
-// 定义 Report 类型
+// 类型定义 (使用 any 兼容不同组件的细微差异，防止TS报错)
 type Report = any;
 type FavoriteItem = { address: string; nickname: string; addedAt: number; tags?: string[] };
 
@@ -38,11 +41,19 @@ export default function HomePage() {
 
   const D = DICT[lang];
 
+  // 初始化加载收藏
   useEffect(() => {
     const saved = localStorage.getItem("walletaudit:favs:v3");
-    if (saved) try { setFavorites(JSON.parse(saved)); } catch (e) {}
+    if (saved) {
+      try { 
+        setFavorites(JSON.parse(saved)); 
+      } catch (e) {
+        console.error("Failed to load favorites", e);
+      }
+    }
   }, []);
 
+  // 提交查询
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!address) return;
@@ -53,21 +64,26 @@ export default function HomePage() {
       const data = await res.json();
       setReport(data);
     } catch (err) {
-      alert("Error fetching report");
+      alert("Error fetching report. Please check the address.");
     } finally {
       setLoading(false);
     }
   };
 
+  // 点击热门/收藏加载
   const loadFav = (addr: string) => {
       setAddress(addr);
       setLoading(true);
-      fetch(`/api/report?address=${addr}`).then(r => r.json()).then(d => {
+      fetch(`/api/report?address=${addr}`)
+        .then(r => r.json())
+        .then(d => {
           setReport(d);
           setLoading(false);
-      }).catch(() => setLoading(false));
+        })
+        .catch(() => setLoading(false));
   };
 
+  // 保存收藏
   const saveFavorite = () => {
     if (!report) return;
     const newItem: FavoriteItem = {
@@ -75,27 +91,31 @@ export default function HomePage() {
         nickname: tempNick || (lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType),
         addedAt: Date.now()
     };
-    const next = [newItem, ...favorites.filter(f => f.address.toLowerCase() !== report.address.toLowerCase())];
+    const next = [newItem, ...favorites.filter((f: any) => f.address.toLowerCase() !== report.address.toLowerCase())];
     setFavorites(next);
     localStorage.setItem("walletaudit:favs:v3", JSON.stringify(next));
     setShowNickModal(false);
     setTempNick("");
   };
 
+  // 删除收藏
   const removeFavorite = (addr: string) => {
       const next = favorites.filter(f => f.address.toLowerCase() !== addr.toLowerCase());
       setFavorites(next);
       localStorage.setItem("walletaudit:favs:v3", JSON.stringify(next));
   };
 
+  // 判断当前报告是否已收藏
   const isFav = report ? favorites.some((f: any) => f.address.toLowerCase() === report.address.toLowerCase()) : false;
   
+  // 评分样式
   const getScoreStyle = (score: number) => {
       if (score >= 80) return { color: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/10' };
       if (score >= 50) return { color: 'text-amber-400', border: 'border-amber-500/30', bg: 'bg-amber-500/10' };
       return { color: 'text-rose-500', border: 'border-rose-500/30', bg: 'bg-rose-500/10' };
   };
 
+  // 生成智能摘要文案
   const getSummaryText = () => {
       if (!report) return "";
       const { assets, identity, risk } = report;
@@ -109,8 +129,12 @@ export default function HomePage() {
       if (lang === 'cn') {
           text += `此地址目前管理约 ${totalVal} 资产，核心配置为 ${topAsset}。`;
           if (ageDate) text += ` 账户创建于 ${ageDate} 年，`;
-          if (risk.level === 'High' && risk.score === 0) text += `被标记为「${risk.personaType}」。请务必远离！`;
-          else text += `属于「${PERSONA_MAP[risk.personaType] || risk.personaType}」。`;
+          
+          if (risk.level === 'High' && risk.score === 0) {
+             text += `被标记为「${risk.personaType}」。请务必远离！`;
+          } else {
+             text += `属于「${PERSONA_MAP[risk.personaType] || risk.personaType}」。`;
+          }
           if (risk.score < 50) text += ` 系统检测到较高的资产集中度或异常交互行为，请注意风险。`;
           else text += ` 资产结构相对稳健。`;
       } else {
@@ -123,12 +147,13 @@ export default function HomePage() {
       return text;
   };
 
+  // 生成图片
   const handleShare = async () => {
       if (!shareRef.current) return;
       setGeneratingImg(true);
       try {
           const canvas = await html2canvas(shareRef.current as HTMLElement, {
-              backgroundColor: "#050505",
+              backgroundColor: "#000000",
               scale: 2, 
               useCORS: true, 
               logging: false, 
@@ -147,10 +172,12 @@ export default function HomePage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20">
+    <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20 flex flex-col">
       
+      {/* 隐藏的分享卡片渲染区 */}
       {report && <ShareCardView report={report} lang={lang} targetRef={shareRef} />}
 
+      {/* 导航栏 */}
       <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -168,8 +195,10 @@ export default function HomePage() {
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+      {/* 核心内容区 */}
+      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6 flex-1">
         
+        {/* 搜索与热门 */}
         <section className="max-w-4xl mx-auto space-y-4">
             <div className="text-center mb-8">
                 <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">
@@ -196,8 +225,7 @@ export default function HomePage() {
                 </div>
             </form>
 
-            {/* ✅ 2. 移除了 lang={lang}，修复报错 */}
-            <TrendingWallets title={D.hotWallets} onLoad={loadFav} />
+            <TrendingWallets title={D.hotWallets} onLoad={loadFav} lang={lang} />
 
             {favorites.length > 0 && (
                 <div className="px-2 pt-2 border-t border-slate-800/50 mt-2">
@@ -218,6 +246,7 @@ export default function HomePage() {
             )}
         </section>
 
+        {/* 报告主体 */}
         {report && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Hero Section */}
@@ -268,6 +297,7 @@ export default function HomePage() {
                               <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
                                   {lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType}
                               </span>
+                              
                               <div className="flex gap-1 ml-1 text-slate-500">
                                   <button onClick={() => navigator.clipboard.writeText(report.address)} className="p-1 hover:text-white transition"><Copy size={14} /></button>
                                   <button onClick={() => setShowNickModal(true)} className={`p-1 transition ${isFav?'text-amber-400':'hover:text-amber-400'}`}><Star size={14} fill={isFav?"currentColor":"none"} /></button>
@@ -323,16 +353,17 @@ export default function HomePage() {
                </div>
             </div>
 
+            {/* Left Col: Approvals & Assets */}
             <div className="lg:col-span-7 space-y-5">
                 {report.approvals && <ApprovalsCard approvals={report.approvals} lang={lang} />}
                 <AssetTable assets={report.assets} lang={lang} />
             </div>
 
+            {/* Right Col: Txs & Pro Ad */}
             <div className="lg:col-span-5 flex flex-col gap-5">
                 <div className="flex-1">
                     <RealTransactionFeed txs={report.activity.recentTxs} address={report.address} lang={lang} />
                 </div>
-                {/* 底部 Pro 广告，这里用到 ArrowUpRight */}
                 <a href={TG_CHANNEL_URL} target="_blank" className="block p-5 rounded-xl border border-blue-600/30 bg-gradient-to-br from-blue-900/20 to-black hover:border-blue-500/50 transition group">
                     <div className="flex justify-between items-center mb-2">
                         <h4 className="font-bold text-blue-400 text-sm">Upgrade to PRO</h4>
@@ -364,6 +395,21 @@ export default function HomePage() {
                 </div>
             </div>
         )}
+
+        {/* Footer */}
+        <footer className="mt-12 py-8 border-t border-slate-900 text-center space-y-4">
+            <div className="flex items-center justify-center gap-6">
+                <a href={TWITTER_URL} target="_blank" className="text-slate-500 hover:text-white transition flex items-center gap-1.5 text-xs">
+                    <Twitter size={14} /> Twitter (X)
+                </a>
+                <a href={TG_CHANNEL_URL} target="_blank" className="text-slate-500 hover:text-white transition flex items-center gap-1.5 text-xs">
+                    <Send size={14} /> Telegram
+                </a>
+            </div>
+            <p className="text-[10px] text-slate-600 font-mono">
+                © 2025 WalletAudit. All On-chain Data provided by Etherscan & Alchemy.
+            </p>
+        </footer>
       </div>
     </main>
   );

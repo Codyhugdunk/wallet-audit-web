@@ -1,3 +1,5 @@
+// app/utils/format.ts
+
 export function formatMoney(value: number, lang: 'cn' | 'en') {
   if (!Number.isFinite(value)) return "$0";
   const abs = Math.abs(value);

@@ -1,3 +1,5 @@
+// app/utils/dictionary.ts
+
 export const PERSONA_MAP: Record<string, string> = {
   "Golden Dog Hunter": "金狗猎人",
   "Whale": "巨鲸",
@@ -53,7 +55,13 @@ export const DICT = {
     downloading: "生成中...",
     shareTitle: "WalletAudit 链上审计报告",
     scanToUse: "扫码体检你的钱包",
-    hotWallets: "热门追踪 🔥"
+    
+    // ✅ 补全了这里缺少的分类标签
+    hotWallets: "热门追踪 🔥",
+    catWhales: "名人大户",
+    catInstitutions: "机构/交易所",
+    catRisk: "黑客/高危",
+    catDegen: "Meme/NFT"
   },
   en: {
     title: "WalletAudit",
@@ -98,6 +106,12 @@ export const DICT = {
     downloading: "Generating...",
     shareTitle: "WalletAudit On-chain Report",
     scanToUse: "Audit Your Wallet",
-    hotWallets: "Trending Now 🔥"
+    
+    // ✅ 补全了这里缺少的分类标签
+    hotWallets: "Trending Now 🔥",
+    catWhales: "Whales",
+    catInstitutions: "Institutions",
+    catRisk: "Hackers",
+    catDegen: "Degen"
   }
 };
