@@ -1,84 +1,80 @@
 // app/api/report/modules/prices.ts
-import { fetchJsonWithTimeout, isLocal } from "../utils/fetch";
+import { fetchJsonWithTimeout } from "../utils/fetch";
 import { cached } from "../utils/cache";
 
-const COINGECKO_API_KEY = process.env.COINGECKO_DEMO_API_KEY;
-const COINGECKO_BASE = "https://api.coingecko.com/api/v3";
+// ✅ 最后的防线：如果所有 API 都挂了，就用这个大概的价格
+// 防止页面出现 $0 这种低级错误
+const FALLBACK_ETH_PRICE = 3900; 
 
-// 本地固定 fallback ETH 价格
-const LOCAL_ETH_FALLBACK = 2600;
-
-// -----------------------------
-// ETH 价格
-// -----------------------------
 export async function getEthPrice(): Promise<number> {
-  // ✅ 只有本地才 fallback（线上必须走真实）
-  if (isLocal) return LOCAL_ETH_FALLBACK;
+  const key = "eth-price-usd";
+  // 缓存 5 分钟，避免频繁撞墙
+  return cached(key, 5 * 60 * 1000, async () => {
+    try {
+      // 1️⃣ 优先尝试 CoinGecko
+      const cgRes = await fetchJsonWithTimeout(
+        "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
+        {},
+        2000 // 2秒超时
+      );
+      if (cgRes?.ethereum?.usd) {
+        return Number(cgRes.ethereum.usd);
+      }
+    } catch (e) {
+      console.warn("CoinGecko ETH price failed, trying backup...");
+    }
 
-  // 线上没有 key 也可以请求（只是更容易被限频）
-  return cached("price:eth", 60_000, async () => {
-    const url =
-      `${COINGECKO_BASE}/simple/price?ids=ethereum&vs_currencies=usd` +
-      (COINGECKO_API_KEY ? `&x_cg_demo_api_key=${COINGECKO_API_KEY}` : "");
+    try {
+      // 2️⃣ 备用尝试 Binance API (公共接口)
+      const binanceRes = await fetchJsonWithTimeout(
+        "https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT",
+        {},
+        2000
+      );
+      if (binanceRes?.price) {
+        return Number(binanceRes.price);
+      }
+    } catch (e) {
+      console.warn("Binance ETH price failed.");
+    }
 
-    const data = await fetchJsonWithTimeout(url);
-    const price = data?.ethereum?.usd;
-    if (!price || !Number.isFinite(price)) return LOCAL_ETH_FALLBACK;
-    return Number(price);
+    // 3️⃣ 实在不行，返回兜底价
+    console.error("All price APIs failed, using fallback.");
+    return FALLBACK_ETH_PRICE;
   });
 }
 
-// -----------------------------
-// Token 价格（按合约地址）
-// -----------------------------
-export async function getTokenPrices(
-  addresses: string[]
-): Promise<Record<string, number>> {
+// 批量获取代币价格 (主要用于 Assets 列表)
+export async function getTokenPrices(addresses: string[]): Promise<Record<string, number>> {
   if (!addresses.length) return {};
+  
+  // CoinGecko 免费版不支持太长的 URL，所以我们只取前 10 个重要的查一下
+  // 避免 URL 过长导致 414 错误
+  const slice = addresses.slice(0, 10).join(",");
+  const key = `token-prices-${slice}`;
 
-  // ✅ 本地：全 0（你既定规则）
-  if (isLocal) {
-    const result: Record<string, number> = {};
-    for (const addr of addresses) result[addr.toLowerCase()] = 0;
-    return result;
-  }
-
-  // 线上：调用 token_price
-  const normalized = Array.from(new Set(addresses.map((a) => a.toLowerCase())));
-
-  const batches: string[][] = [];
-  const BATCH_SIZE = 100;
-  for (let i = 0; i < normalized.length; i += BATCH_SIZE) {
-    batches.push(normalized.slice(i, i + BATCH_SIZE));
-  }
-
-  const allResults: Record<string, number> = {};
-
-  await Promise.all(
-    batches.map(async (batch) => {
-      const key = `price:tokens:${batch[0]}:${batch.length}`;
-      const batchResult = await cached(key, 60_000, async () => {
-        const contracts = batch.join(",");
-        const url =
-          `${COINGECKO_BASE}/simple/token_price/ethereum?contract_addresses=${contracts}&vs_currencies=usd` +
-          (COINGECKO_API_KEY ? `&x_cg_demo_api_key=${COINGECKO_API_KEY}` : "");
-
-        const data = await fetchJsonWithTimeout(url);
-        if (!data || typeof data !== "object") return {};
-
-        const r: Record<string, number> = {};
-        for (const [addr, info] of Object.entries<any>(data)) {
-          const price = info?.usd;
-          if (price && Number.isFinite(price)) r[addr.toLowerCase()] = Number(price);
+  return cached(key, 5 * 60 * 1000, async () => {
+    try {
+      // 注意：CoinGecko 查代币价格需要用 contract addresses
+      // 免费版限制较多，这里尽力而为
+      const url = `https://api.coingecko.com/api/v3/simple/token_price/ethereum?contract_addresses=${slice}&vs_currencies=usd`;
+      
+      const res = await fetchJsonWithTimeout(url, {}, 3000);
+      
+      const prices: Record<string, number> = {};
+      if (res) {
+        for (const addr of addresses) {
+            // CoinGecko 返回的 key 也是小写的
+            const lowerAddr = addr.toLowerCase();
+            if (res[lowerAddr]?.usd) {
+                prices[lowerAddr] = res[lowerAddr].usd;
+            }
         }
-        return r;
-      });
-
-      Object.assign(allResults, batchResult);
-    })
-  );
-
-  const filled: Record<string, number> = {};
-  for (const addr of normalized) filled[addr] = allResults[addr] ?? 0;
-  return filled;
+      }
+      return prices;
+    } catch (e) {
+      console.warn("Token prices fetch failed", e);
+      return {}; // 失败返回空对象，不影响主流程
+    }
+  });
 }

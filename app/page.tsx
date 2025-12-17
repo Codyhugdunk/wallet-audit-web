@@ -124,28 +124,61 @@ export default function HomePage() {
   };
 
   const handleShare = async () => {
-      if (!shareRef.current) return;
-      setGeneratingImg(true);
-      try {
-          const canvas = await html2canvas(shareRef.current as HTMLElement, {
-              backgroundColor: "#000000",
-              scale: 2, 
-              useCORS: true, 
-              logging: false, 
-              allowTaint: true,
-          });
-          const image = canvas.toDataURL("image/png");
-          const link = document.createElement("a");
-          link.href = image;
-          link.download = `WalletAudit-${report?.address.slice(0,6)}.png`;
-          link.click();
-      } catch (e: any) { 
-          console.error("Share gen failed", e);
-          alert(`生成失败: ${e.message || "未知错误"}`); 
-      } finally {
-          setGeneratingImg(false);
-      }
-  };
+  if (!shareRef.current) return;
+  setGeneratingImg(true);
+
+  try {
+    const canvas = await html2canvas(shareRef.current as HTMLElement, {
+      backgroundColor: "#000000",
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      allowTaint: true,
+
+      // ✅ 关键：在 clone 的 DOM 里移除/屏蔽包含 lab/oklch 的样式表，避免 html2canvas 解析报错
+      onclone: (clonedDoc) => {
+        // 1) 移除可能包含现代色彩函数的 <style>
+        clonedDoc.querySelectorAll("style").forEach((styleEl) => {
+          const cssText = styleEl.textContent || "";
+          if (
+            cssText.includes("lab(") ||
+            cssText.includes("oklab(") ||
+            cssText.includes("oklch(") ||
+            cssText.includes("color-mix(")
+          ) {
+            styleEl.remove();
+          }
+        });
+
+        // 2) 也可以选择移除部分 <link rel="stylesheet">（更激进，必要时再开）
+        // clonedDoc.querySelectorAll('link[rel="stylesheet"]').forEach((linkEl) => linkEl.remove());
+
+        // 3) 强行把 share 卡片内所有颜色兜底成简单可解析值（双保险）
+        const style = clonedDoc.createElement("style");
+        style.textContent = `
+          [data-share-card] * {
+            color: inherit !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            filter: none !important;
+          }
+        `;
+        clonedDoc.head.appendChild(style);
+      },
+    });
+
+    const image = canvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.href = image;
+    link.download = `WalletAudit-${report?.address.slice(0, 6)}.png`;
+    link.click();
+  } catch (e: any) {
+    console.error("Share gen failed", e);
+    alert(`生成失败: ${e.message || "未知错误"}`);
+  } finally {
+    setGeneratingImg(false);
+  }
+};
 
   return (
     <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20 flex flex-col">
