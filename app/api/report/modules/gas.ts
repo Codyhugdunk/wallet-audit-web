@@ -1,134 +1,126 @@
 // app/api/report/modules/gas.ts
+// v4.1 - Fix Types for topTxs
+
 import { fetchJsonWithTimeout } from "../utils/fetch";
 import { formatUnits, hexToBigInt, safeFloat } from "../utils/hex";
 import { GasModule } from "./types";
 import { getEthPrice } from "./prices";
 import { getDisplayName } from "./labels";
 
-const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL!;
-const MAX_TX_FOR_GAS = 50;
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
+const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL;
 
-interface RawTransfer {
-  hash?: string;
+// 定义单个交易的结构，确保与 GasModule.topTxs 匹配
+interface GasTx {
+  hash: string;
+  gasEth: number;
+  toDisplay: string;
 }
 
-async function fetchRecentTxHashes(address: string): Promise<string[]> {
+// 1. 获取最近交易列表
+async function fetchRecentTxList(address: string): Promise<any[]> {
+  if (!ETHERSCAN_API_KEY) return [];
+  const url = `https://api.etherscan.io/v2/api?chainid=1&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=50&sort=desc&apikey=${ETHERSCAN_API_KEY}`;
   try {
-    const res = await fetchJsonWithTimeout(ALCHEMY_RPC, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "alchemy_getAssetTransfers",
-        params: [
-          {
-            fromAddress: address,
-            maxCount: "0x32", // Hex 50
-            category: ["external", "erc20"],
-            withMetadata: false,
-          },
-        ],
-      }),
-    });
-
-    const transfers: RawTransfer[] = res?.result?.transfers ?? [];
-    const hashes = transfers.map((t) => t.hash).filter((h): h is string => Boolean(h));
-    return hashes.slice(0, MAX_TX_FOR_GAS);
-  } catch {
+    const res = await fetchJsonWithTimeout(url);
+    if (res.status === "1" && Array.isArray(res.result)) return res.result;
     return [];
-  }
+  } catch { return []; }
 }
 
-async function fetchReceipt(hash: string): Promise<any | null> {
-  try {
-    const res = await fetchJsonWithTimeout(ALCHEMY_RPC, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "eth_getTransactionReceipt",
-        params: [hash],
-      }),
-    });
-    return res?.result ?? null;
-  } catch {
-    return null;
-  }
-}
-
+// 2. 并发控制
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
   fn: (item: T) => Promise<R>
 ): Promise<R[]> {
   const results: Promise<R>[] = [];
-  const executing: Promise<void>[] = [];
+  const executing: Set<Promise<void>> = new Set();
   
   for (const item of items) {
     const p = fn(item);
     results.push(p);
-    
-    const e: Promise<void> = p.then(() => {
-        executing.splice(executing.indexOf(e), 1);
+    const e: Promise<void> = p.then(() => {}).catch(() => {}).finally(() => {
+        executing.delete(e);
     });
-    executing.push(e);
-    
-    if (executing.length >= limit) {
+    executing.add(e);
+    if (executing.size >= limit) {
         await Promise.race(executing);
     }
   }
-  return Promise.all(results);
+  return Promise.allSettled(results).then(res => 
+      res.filter(r => r.status === 'fulfilled').map(r => (r as any).value)
+  );
+}
+
+// 获取 Receipt
+async function fetchReceipt(hash: string): Promise<any | null> {
+  if (!ALCHEMY_RPC) return null;
+  try {
+    const res = await fetchJsonWithTimeout(ALCHEMY_RPC, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "eth_getTransactionReceipt", params: [hash] }),
+    });
+    return res?.result ?? null;
+  } catch { return null; }
 }
 
 export async function buildGasModule(address: string): Promise<GasModule> {
-  const hashes = await fetchRecentTxHashes(address);
-  
-  // ✅ 修复 1：这里补上了 txCount
-  if (!hashes.length) {
+  const rawTxs = await fetchRecentTxList(address);
+  if (!rawTxs.length) {
     return { txCount: 0, totalGasEth: 0, totalGasUsd: 0, topTxs: [] };
   }
 
+  const hashes = rawTxs.map(tx => tx.hash);
+
   const [ethPrice, receipts] = await Promise.all([
     getEthPrice(),
-    mapWithConcurrency(hashes, 5, (h) => fetchReceipt(h)),
+    mapWithConcurrency(hashes, 8, fetchReceipt),
   ]);
 
-  const entries = await Promise.all(
-    hashes.map(async (hash, idx) => {
-      const receipt = receipts[idx];
-      if (!receipt) return null;
-
-      const gasUsedHex = receipt.gasUsed as string | undefined;
-      const gasPriceHex = (receipt.effectiveGasPrice || receipt.gasPrice) as string | undefined;
-
-      if (!gasUsedHex || !gasPriceHex) return null;
-
-      const gasWei = hexToBigInt(gasUsedHex) * hexToBigInt(gasPriceHex);
-      const gasEth = safeFloat(formatUnits(gasWei, 18), 0);
-      if (gasEth <= 0) return null;
-
-      const to = (receipt.to as string | undefined) || "";
-      const toDisplay = to ? await getDisplayName(to) : "";
-
-      return { hash, gasEth, toDisplay };
-    })
+  // Label 去重查询
+  const uniqueToAddresses = new Set<string>();
+  receipts.forEach((r: any) => {
+      if (r && r.to) uniqueToAddresses.add(r.to.toLowerCase());
+  });
+  
+  const labelMap: Record<string, string> = {};
+  await Promise.all(
+      Array.from(uniqueToAddresses).map(async (addr) => {
+          labelMap[addr] = await getDisplayName(addr);
+      })
   );
 
-  const validEntries = entries.filter((e): e is NonNullable<typeof e> => e !== null);
+  // 计算并构建对象
+  const entries = receipts.map((r: any, idx: number): GasTx | null => {
+    if (!r || !r.gasUsed || !r.effectiveGasPrice) return null;
+    
+    const gasWei = hexToBigInt(r.gasUsed) * hexToBigInt(r.effectiveGasPrice);
+    const gasEth = safeFloat(formatUnits(gasWei, 18), 0);
+    if (gasEth <= 0) return null;
+
+    const to = r.to ? r.to.toLowerCase() : "";
+    
+    return { 
+        hash: hashes[idx], 
+        gasEth, 
+        toDisplay: labelMap[to] || "" 
+    };
+  });
+
+  // ✅ 关键修复：使用类型断言过滤掉 null，确保类型是 GasTx[]
+  const validEntries = entries.filter((e): e is GasTx => e !== null);
 
   const totalGasEth = validEntries.reduce((sum, x) => sum + x.gasEth, 0);
-  const totalGasUsd = safeFloat(totalGasEth * ethPrice, 0);
 
   const topTxs = validEntries
     .sort((a, b) => b.gasEth - a.gasEth)
     .slice(0, 3);
 
   return {
-    txCount: hashes.length, // ✅ 修复 2：这里也补上了 txCount
+    txCount: validEntries.length,
     totalGasEth,
-    totalGasUsd,
+    totalGasUsd: safeFloat(totalGasEth * ethPrice, 0),
     topTxs, 
   };
 }
