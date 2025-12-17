@@ -7,50 +7,46 @@ import { buildGasModule } from "./modules/gas";
 import { buildRiskModule } from "./modules/risk";
 import { buildShareModule } from "./modules/share";
 import { buildSummaryModule } from "./modules/summary";
-import { buildApprovalsModule } from "./modules/approvals"; // ✅ 新增：引入授权模块
+import { buildApprovalsModule } from "./modules/approvals";
 import type { ReportData } from "./modules/types";
 
-// 强制动态模式，防止 Vercel 缓存过久导致数据不刷新
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const address = searchParams.get("address");
 
-  // 1. 基础校验
   if (!address || !address.startsWith("0x") || address.length !== 42) {
-    return NextResponse.json(
-      { error: "Invalid Ethereum address format" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid Ethereum address format" }, { status: 400 });
   }
 
   try {
     const cleanAddress = address.toLowerCase();
 
-    // 2. 并行执行所有独立的数据获取模块 (速度最快)
-    // 我们把 approvals 加入到这个并发队列里
-    const [identity, assets, activity, gas, approvals] = await Promise.all([
-      buildIdentityModule(cleanAddress),
+    // 1. 基础身份 (极快)
+    const identity = await buildIdentityModule(cleanAddress);
+
+    // 2. 并行执行核心模块 (使用 allSettled 防止单点故障)
+    const results = await Promise.allSettled([
       buildAssetsModule(cleanAddress),
       buildActivityModule(cleanAddress),
       buildGasModule(cleanAddress),
-      buildApprovalsModule(cleanAddress), // ✅ 新增：并行获取授权数据
+      buildApprovalsModule(cleanAddress),
     ]);
 
-    // 3. 执行依赖数据的模块
-    // Risk 模块依赖 Assets 和 Activity 的结果
-    const risk = buildRiskModule(assets, activity, cleanAddress); // ✅ 把地址传进去
+    // 3. 安全解包数据 (失败则给空默认值)
+    const assets = results[0].status === "fulfilled" ? results[0].value : { eth: {amount:0, value:0}, tokens:[], totalValue:0, allocation:[], otherTokens:[], priceWarning:null };
+    const activity = results[1].status === "fulfilled" ? results[1].value : { txCount: 0, activeDays: 0, contractsInteracted: 0, topContracts: [], weeklyHistogram: [], recentTxs: [] };
+    const gas = results[2].status === "fulfilled" ? results[2].value : { txCount: 0, totalGasEth: 0, totalGasUsd: 0, topTxs: [] };
+    const approvals = results[3].status === "fulfilled" ? results[3].value : { riskCount: 0, items: [] };
 
-    // Summary 模块依赖前面所有的结果
+    // 4. 依赖计算
+    const risk = buildRiskModule(assets, activity, cleanAddress);
     const summary = buildSummaryModule(identity, assets, activity, risk);
-
-    // Share 模块生成快照数据
     const share = buildShareModule(cleanAddress, assets, risk);
 
-    // 4. 组装最终报告
     const report: ReportData = {
-      version: "v2.0",
+      version: "v3.0",
       address: cleanAddress,
       identity,
       summary,
@@ -58,13 +54,13 @@ export async function GET(request: Request) {
       activity,
       gas,
       risk,
-      approvals, // ✅ 新增：放入最终返回结果
+      approvals,
       share,
       meta: {
-        version: "2.0.0",
+        version: "3.0.0",
         generatedAt: Date.now(),
         fromCache: false,
-        history: [], // 暂时留空，由前端本地存储管理历史
+        history: [],
       },
     };
 

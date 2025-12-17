@@ -1,5 +1,5 @@
 // app/api/report/modules/assets.ts
-// v3.2 - Fallback Strategy for Huge Wallets
+// v3.3 - Fail-Safe Strategy: ETH First, Tokens Optional
 
 import { fetchJsonWithTimeout } from "../utils/fetch";
 import { formatUnits, hexToBigInt, safeFloat } from "../utils/hex";
@@ -22,38 +22,38 @@ function classifyToken(symbol: string): "Stablecoins" | "Majors" | "Meme" | "Oth
   return "Others";
 }
 
-// 基础 ETH 查询 (极快，绝不会挂)
+// 基础 ETH 查询
 async function getEthBalance(address: string): Promise<number> {
   try {
     const res = await fetchJsonWithTimeout(ALCHEMY_RPC, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "eth_getBalance", params: [address, "latest"] }),
-    }, 2000); // 2秒超时
+    }); // 移除过短的 timeout 参数，使用默认
     return formatUnits(hexToBigInt(res?.result), 18);
   } catch { return 0; }
 }
 
 interface RawTokenBalance { contractAddress: string; tokenBalance: string; }
 
-// 代币查询 (可能很慢，加上 try-catch 保护)
-async function getRawTokenBalances(address: string): Promise<RawTokenBalance[]> {
-  try {
-    // 限制 4 秒超时，如果太慢直接放弃代币查询，保住 ETH
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-    
-    const res = await fetch(ALCHEMY_RPC, {
-      method: "POST", 
-      headers: { "Content-Type": "application/json" },
+// 代币查询：带 2秒 强制熔断
+async function getRawTokenBalancesSafe(address: string): Promise<RawTokenBalance[]> {
+  const fetchPromise = fetchJsonWithTimeout(ALCHEMY_RPC, {
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "alchemy_getTokenBalances", params: [address, "erc20"] }),
-      signal: controller.signal
-    }).then(r => r.json());
-    
-    clearTimeout(timeoutId);
-    return res?.result?.tokenBalances?.filter((t: any) => t?.tokenBalance && t?.tokenBalance !== "0x0") ?? [];
+  });
+
+  // 创建一个 2.5 秒后自动 reject 的 Promise
+  const timeoutPromise = new Promise<RawTokenBalance[]>((_, reject) => 
+      setTimeout(() => reject(new Error("Token scan timed out")), 2500)
+  );
+
+  try {
+      // 谁快用谁，如果 2.5s 没跑完，直接走 catch
+      const res: any = await Promise.race([fetchPromise, timeoutPromise]);
+      return res?.result?.tokenBalances?.filter((t: any) => t?.tokenBalance && t?.tokenBalance !== "0x0") ?? [];
   } catch (e) {
-    console.warn("⚠️ Token fetch timed out, skipping tokens.");
-    return []; // 超时返回空数组，而不是报错
+      console.warn("⚠️ Tokens skipped due to timeout or error.");
+      return []; // 返回空数组，不崩
   }
 }
 
@@ -65,39 +65,41 @@ async function fetchTokenMeta(contractAddress: string): Promise<TokenMeta> {
       const res = await fetchJsonWithTimeout(ALCHEMY_RPC, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "alchemy_getTokenMetadata", params: [contractAddress] }),
-      }, 1500); // 元数据查询也加紧超时
+      });
       return { symbol: (res?.result?.symbol as string) || "UNKNOWN", decimals: typeof res?.result?.decimals === "number" ? res.result.decimals : 18 };
     } catch { return { symbol: "UNKNOWN", decimals: 18 }; }
   });
 }
 
 export async function buildAssetsModule(address: string): Promise<AssetModule> {
-  // 1. 先查 ETH 价格 (全剧通用)
-  const ethPrice = await getEthPrice();
+  // 1. 并行获取 ETH 价格和 ETH 余额 (这俩很快，几乎必成功)
+  const [ethPrice, ethAmount] = await Promise.all([
+    getEthPrice(),
+    getEthBalance(address)
+  ]);
 
-  // 2. 查 ETH 余额 (必须成功)
-  const ethAmount = await getEthBalance(address);
+  // 计算 ETH 价值
+  const ethValue = safeFloat(ethAmount * ethPrice, 0);
 
-  // 3. 查代币 (允许失败)
-  const allRawTokens = await getRawTokenBalances(address);
+  // 2. 尝试获取代币 (可能会失败/超时)
+  const allRawTokens = await getRawTokenBalancesSafe(address);
 
-  // 如果代币查询失败或为空，直接返回 ETH 数据，避免 $0
+  // 如果代币获取失败，立刻返回 ETH 数据，绝不返回 0
   if (allRawTokens.length === 0) {
-      const ethVal = safeFloat(ethAmount * ethPrice, 0);
       return {
-          eth: { amount: ethAmount, value: ethVal },
+          eth: { amount: ethAmount, value: ethValue },
           tokens: [],
-          totalValue: ethVal,
-          allocation: ethVal > 0 ? [{ category: "ETH", value: ethVal, ratio: 1 }] : [],
+          totalValue: ethValue,
+          allocation: ethValue > 0 ? [{ category: "ETH", value: ethValue, ratio: 1 }] : [],
           otherTokens: [],
-          priceWarning: "部分代币数据加载超时，仅显示 ETH 资产。"
+          priceWarning: null
       };
   }
 
-  // ... (原本的 Top 50 逻辑，用于处理没超时的正常巨鲸) ...
+  // 3. 如果拿到了代币，只取前 40 个最大的进行解析
   const topTokens = allRawTokens
     .sort((a, b) => b.tokenBalance.length - a.tokenBalance.length || (b.tokenBalance > a.tokenBalance ? 1 : -1))
-    .slice(0, 50);
+    .slice(0, 40);
 
   const tokenAddresses = topTokens.map((t) => t.contractAddress);
   const uniqueAddresses = Array.from(new Set(tokenAddresses.map((a) => a.toLowerCase())));
@@ -120,7 +122,6 @@ export async function buildAssetsModule(address: string): Promise<AssetModule> {
   });
 
   tokens.sort((a, b) => b.value - a.value);
-  const ethValue = safeFloat(ethAmount * ethPrice, 0);
   const tokensValue = tokens.reduce((sum, t) => sum + t.value, 0);
   const totalValue = safeFloat(ethValue + tokensValue, 0);
 
