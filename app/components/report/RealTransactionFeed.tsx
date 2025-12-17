@@ -4,7 +4,8 @@ import {
 import { DICT } from "../../utils/dictionary";
 import { formatTimeAgo, formatEth } from "../../utils/format";
 
-// 定义接口，防止 TS 报错
+const TG_CHANNEL_URL = "https://t.me/walletaudit";
+
 export interface RecentTx { 
   hash: string; 
   timestamp: number; 
@@ -22,7 +23,6 @@ export function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], a
   const FREE_LIMIT = 8;
   const visibleTxs = (txs || []).slice(0, FREE_LIMIT);
   const hasMore = (txs || []).length > FREE_LIMIT;
-  const TG_CHANNEL_URL = "https://t.me/walletaudit";
 
   if (!txs || txs.length === 0) return (
         <div className="bg-[#0a0a0a] border border-slate-800 rounded-xl p-8 flex flex-col items-center justify-center text-slate-500 h-full min-h-[400px]">
@@ -86,18 +86,18 @@ export function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], a
        </div>
 
        {hasMore && (
-           <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/90 to-transparent flex flex-col items-center justify-end pb-6 z-10">
-               <div className="text-center space-y-2 px-4">
+           <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/95 to-transparent flex flex-col items-center justify-end pb-6 z-10">
+               <div className="text-center space-y-3 px-4">
                    <p className="text-xs text-slate-400 font-medium">
                        {lang === 'cn' ? `还有 ${txs.length - FREE_LIMIT} 条历史交易记录...` : `+${txs.length - FREE_LIMIT} more transactions...`}
                    </p>
                    <a 
                        href={TG_CHANNEL_URL} 
                        target="_blank"
-                       className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg shadow-blue-900/40 transition transform hover:scale-105"
+                       className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-6 py-2.5 rounded-full shadow-lg shadow-blue-900/40 transition transform hover:scale-105"
                    >
                        <Lock size={12} />
-                       {lang === 'cn' ? '加入社区解锁 (免费)' : 'Join to Unlock'}
+                       {lang === 'cn' ? '加入社区解锁完整记录' : 'Join to Unlock Full History'}
                    </a>
                </div>
            </div>

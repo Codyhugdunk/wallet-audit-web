@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Flame } from "lucide-react";
-import { DICT } from "../../utils/dictionary"; // ✅ 引入字典
+import { DICT } from "../../utils/dictionary";
 
 // 热门地址库
 const HOT_WALLETS = [
@@ -22,12 +22,10 @@ const HOT_WALLETS = [
   { name: "Franklin", address: "0x4D9720023023E3E0d338a95697B7D50f3B646D08", tag: "🦍 BAYC", category: "Degen" },
 ];
 
-// ✅ 核心修复：添加了 lang 参数，并定义了类型
 export function TrendingWallets({ onLoad, title, lang }: { onLoad: (addr: string) => void, title: string, lang: 'cn' | 'en' }) {
   const [activeTab, setActiveTab] = useState("Whales");
   const D = DICT[lang];
 
-  // 定义分类标签 (支持多语言)
   const categories = [
     { key: "Whales", label: D.catWhales },
     { key: "Institutions", label: D.catInstitutions },
@@ -39,13 +37,11 @@ export function TrendingWallets({ onLoad, title, lang }: { onLoad: (addr: string
 
   return (
     <div className="px-1 space-y-3">
-        {/* Header & Tabs */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm text-slate-400 font-bold">
                 <Flame size={16} className="text-orange-500" /> {title}
             </div>
             
-            {/* 分类标签栏 */}
             <div className="flex bg-slate-900/80 p-1 rounded-lg border border-slate-800 self-start sm:self-auto overflow-x-auto max-w-full no-scrollbar">
                 {categories.map(cat => (
                     <button
@@ -63,7 +59,6 @@ export function TrendingWallets({ onLoad, title, lang }: { onLoad: (addr: string
             </div>
         </div>
 
-        {/* 列表网格 */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {list.map(w => (
                 <button 

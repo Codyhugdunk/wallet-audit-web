@@ -13,6 +13,7 @@ export const PERSONA_MAP: Record<string, string> = {
 
 export const DICT = {
   cn: {
+    // ... 原有的字段 ...
     title: "WalletAudit",
     placeholder: "输入 ETH 地址或 ENS...",
     analyze: "立即审计",
@@ -56,7 +57,7 @@ export const DICT = {
     shareTitle: "WalletAudit 链上审计报告",
     scanToUse: "扫码体检你的钱包",
     
-    // ✅ 补全了这里缺少的分类标签
+    // ✅ 必须要有这部分，TrendingWallets 组件要用
     hotWallets: "热门追踪 🔥",
     catWhales: "名人大户",
     catInstitutions: "机构/交易所",
@@ -64,6 +65,7 @@ export const DICT = {
     catDegen: "Meme/NFT"
   },
   en: {
+    // ... 原有的字段 ...
     title: "WalletAudit",
     placeholder: "Enter ETH Address / ENS...",
     analyze: "Audit",
@@ -107,7 +109,7 @@ export const DICT = {
     shareTitle: "WalletAudit On-chain Report",
     scanToUse: "Audit Your Wallet",
     
-    // ✅ 补全了这里缺少的分类标签
+    // ✅ 必须要有这部分
     hotWallets: "Trending Now 🔥",
     catWhales: "Whales",
     catInstitutions: "Institutions",
@@ -115,3 +117,29 @@ export const DICT = {
     catDegen: "Degen"
   }
 };
+// 辅助翻译函数
+export function getTrans(key: string, lang: 'cn' | 'en'): string {
+    // 这里简单映射，后续可以用更复杂的 MAP
+    const MAP: any = {
+       "WHALE": { cn: "🐋 顶级巨鲸", en: "🐋 Top Whale" },
+       "SMART_MONEY": { cn: "🦈 聪明钱", en: "🦈 Smart Money" },
+       "MID_CLASS": { cn: "🐬 中产阶级", en: "🐬 Mid Class" },
+       "SHRIMP": { cn: "🦐 链上虾米", en: "🦐 Shrimp" },
+       "SNIPER": { cn: "🎲 单币梭哈", en: "🎲 Sniper" },
+       "ETF_STYLE": { cn: "🏦 指数配置", en: "🏦 Index Fund" },
+       "GAMBLER": { cn: "🔥 链上赌徒", en: "🔥 Degen" },
+       "RISK_AVERSE": { cn: "🛡️ 风险厌恶", en: "🛡️ Safe Player" },
+       "OG": { cn: "⏳ 钻石手老兵", en: "⏳ OG" },
+       "NEW_MONEY": { cn: "⚡ 突击新钱", en: "⚡ New Money" },
+       "General_User": { cn: "普通链上用户", en: "General User" },
+       "Institutional": { cn: "机构/做市商", en: "Institutional" },
+       "Golden_Dog_Hunter": { cn: "金狗猎人", en: "Alpha Hunter" },
+       "High_Risk_Degen": { cn: "高危 Degen", en: "High Risk Degen" },
+       "Maxi": { cn: "信仰持仓者", en: "Maxi" },
+       "Tourist": { cn: "链上观光客", en: "Tourist" },
+       "Criminal": { cn: "☠️ 网络犯罪者", en: "☠️ Cyber Criminal" },
+       "Hacker": { cn: "黑客", en: "Hacker" },
+       "Money_Laundering": { cn: "洗钱风险", en: "Money Laundering" }
+    };
+    return MAP[key]?.[lang] || key;
+}

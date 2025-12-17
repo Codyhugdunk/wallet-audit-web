@@ -41,27 +41,30 @@ function generatePersona(
 ): { type: string; tags: string[] } {
   const tags: string[] = [];
   
-  if (wealthScore >= 7) tags.push("🐋 顶级巨鲸");
-  else if (wealthScore >= 6) tags.push("🦈 聪明钱大户");
-  else if (wealthScore >= 5) tags.push("🐬 中产阶级");
-  else if (wealthScore <= 3) tags.push("🦐 链上小虾米");
+  if (wealthScore >= 7) tags.push("WHALE");     
+  else if (wealthScore >= 6) tags.push("SMART_MONEY"); 
+  else if (wealthScore >= 5) tags.push("MID_CLASS");   
+  else if (wealthScore <= 3) tags.push("SHRIMP"); 
 
-  if (hhi > 5000) tags.push("🎲 单币梭哈者");
-  else if (hhi < 1500) tags.push("🏦 指数化配置");
+  if (hhi > 5000) tags.push("SNIPER");
+  else if (hhi < 1500) tags.push("ETF_STYLE");
 
-  if (degenIndex > 80) tags.push("🔥 链上赌徒");
-  else if (degenIndex < 10) tags.push("🛡️ 风险厌恶者");
+  if (degenIndex > 80) tags.push("GAMBLER");
+  else if (degenIndex < 10) tags.push("RISK_AVERSE");
 
-  if (activeDays > 365) tags.push("⏳ 钻石手老兵");
-  if (activeDays < 7 && wealthScore > 4) tags.push("⚡ 突击新钱包");
+  if (activeDays > 365) tags.push("OG");
+  if (activeDays < 7 && wealthScore > 4) tags.push("NEW_MONEY");
 
-  let type = "普通链上用户";
+  let type = "General_User"; // 默认 Key
 
-  if (wealthScore >= 6 && hhi < 2000) type = "机构级做市商/基金";
-  else if (wealthScore >= 5 && degenIndex > 60) type = "金狗猎人 (Golden Dog Hunter)";
-  else if (degenIndex > 90) type = "高危 Degen 玩家";
-  else if (hhi > 8000) type = "信仰持仓者 (Maxi)";
-  else if (wealthScore < 3 && degenIndex < 20) type = "链上观光客";
+  if (wealthScore >= 6 && hhi < 2000) type = "Institutional";
+  else if (wealthScore >= 5 && degenIndex > 60) type = "Golden_Dog_Hunter";
+  else if (degenIndex > 90) type = "High_Risk_Degen";
+  else if (hhi > 8000) type = "Maxi"; // 信仰者
+  else if (wealthScore < 3 && degenIndex < 20) type = "Tourist";
+  
+  // 这里也要把 "网络犯罪者" 改成 Key "Criminal"
+  // ...
 
   return { type, tags };
 }

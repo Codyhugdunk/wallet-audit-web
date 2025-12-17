@@ -2,17 +2,17 @@
 
 import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
-// ✅ 核心修复：把所有红线的图标都加进来
+// ✅ 修复 1：补全了 Zap, Calendar, Flame, Layers 等所有图标
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
   ArrowUpRight, Twitter, Send, Clock, Share2,
-  Zap, Calendar, Flame, Layers, ShieldAlert, Lock // <--- 补齐了这些
+  Zap, Calendar, Flame, Layers, ShieldAlert, Lock
 } from "lucide-react";
 
-// ✅ 正确引用你已经拆分好的组件和工具
-// 注意：这里假设你的目录结构是 app/utils 和 app/components
-import { DICT, PERSONA_MAP } from "./utils/dictionary";
+// ✅ 修复 2：补全了 getTrans 的引用
+import { DICT, PERSONA_MAP, getTrans } from "./utils/dictionary";
 import { formatMoney } from "./utils/format";
+
 import { WalletAuditLogo } from "./components/ui/WalletAuditLogo";
 import { TrendingWallets } from "./components/report/TrendingWallets";
 import { ApprovalsCard } from "./components/report/ApprovalsCard";
@@ -23,7 +23,7 @@ import { ShareCardView } from "./components/report/ShareCardView";
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
 const TWITTER_URL = "https://x.com/PhilWong19";
 
-// 类型定义 (使用 any 兼容不同组件的细微差异，防止TS报错)
+// Report 类型定义
 type Report = any;
 type FavoriteItem = { address: string; nickname: string; addedAt: number; tags?: string[] };
 
@@ -41,19 +41,11 @@ export default function HomePage() {
 
   const D = DICT[lang];
 
-  // 初始化加载收藏
   useEffect(() => {
     const saved = localStorage.getItem("walletaudit:favs:v3");
-    if (saved) {
-      try { 
-        setFavorites(JSON.parse(saved)); 
-      } catch (e) {
-        console.error("Failed to load favorites", e);
-      }
-    }
+    if (saved) try { setFavorites(JSON.parse(saved)); } catch (e) {}
   }, []);
 
-  // 提交查询
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!address) return;
@@ -64,31 +56,26 @@ export default function HomePage() {
       const data = await res.json();
       setReport(data);
     } catch (err) {
-      alert("Error fetching report. Please check the address.");
+      alert("Error fetching report");
     } finally {
       setLoading(false);
     }
   };
 
-  // 点击热门/收藏加载
   const loadFav = (addr: string) => {
       setAddress(addr);
       setLoading(true);
-      fetch(`/api/report?address=${addr}`)
-        .then(r => r.json())
-        .then(d => {
+      fetch(`/api/report?address=${addr}`).then(r => r.json()).then(d => {
           setReport(d);
           setLoading(false);
-        })
-        .catch(() => setLoading(false));
+      }).catch(() => setLoading(false));
   };
 
-  // 保存收藏
   const saveFavorite = () => {
     if (!report) return;
     const newItem: FavoriteItem = {
         address: report.address,
-        nickname: tempNick || (lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType),
+        nickname: tempNick || getTrans(report.risk.personaType, lang),
         addedAt: Date.now()
     };
     const next = [newItem, ...favorites.filter((f: any) => f.address.toLowerCase() !== report.address.toLowerCase())];
@@ -98,24 +85,20 @@ export default function HomePage() {
     setTempNick("");
   };
 
-  // 删除收藏
   const removeFavorite = (addr: string) => {
       const next = favorites.filter(f => f.address.toLowerCase() !== addr.toLowerCase());
       setFavorites(next);
       localStorage.setItem("walletaudit:favs:v3", JSON.stringify(next));
   };
 
-  // 判断当前报告是否已收藏
   const isFav = report ? favorites.some((f: any) => f.address.toLowerCase() === report.address.toLowerCase()) : false;
   
-  // 评分样式
   const getScoreStyle = (score: number) => {
       if (score >= 80) return { color: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/10' };
       if (score >= 50) return { color: 'text-amber-400', border: 'border-amber-500/30', bg: 'bg-amber-500/10' };
       return { color: 'text-rose-500', border: 'border-rose-500/30', bg: 'bg-rose-500/10' };
   };
 
-  // 生成智能摘要文案
   const getSummaryText = () => {
       if (!report) return "";
       const { assets, identity, risk } = report;
@@ -125,29 +108,26 @@ export default function HomePage() {
       const topToken = assets.tokens.length > 0 ? assets.tokens[0] : null;
       const topAsset = (topToken && topToken.value > ethVal) ? topToken.symbol : "ETH";
       
+      const persona = getTrans(risk.personaType, lang);
+
       let text = "";
       if (lang === 'cn') {
           text += `此地址目前管理约 ${totalVal} 资产，核心配置为 ${topAsset}。`;
           if (ageDate) text += ` 账户创建于 ${ageDate} 年，`;
-          
-          if (risk.level === 'High' && risk.score === 0) {
-             text += `被标记为「${risk.personaType}」。请务必远离！`;
-          } else {
-             text += `属于「${PERSONA_MAP[risk.personaType] || risk.personaType}」。`;
-          }
+          if (risk.level === 'High' && risk.score === 0) text += `被标记为「${persona}」。请务必远离！`;
+          else text += `属于「${persona}」。`;
           if (risk.score < 50) text += ` 系统检测到较高的资产集中度或异常交互行为，请注意风险。`;
           else text += ` 资产结构相对稳健。`;
       } else {
           text += `Managing approx ${totalVal}, mainly allocated in ${topAsset}. `;
           if (ageDate) text += `Created in ${ageDate}, `;
-          text += `identified as "${risk.personaType}". `;
+          text += `identified as "${persona}". `;
           if (risk.score < 50) text += ` High concentration or unusual activity detected.`;
           else text += ` The portfolio structure appears stable.`;
       }
       return text;
   };
 
-  // 生成图片
   const handleShare = async () => {
       if (!shareRef.current) return;
       setGeneratingImg(true);
@@ -174,10 +154,8 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20 flex flex-col">
       
-      {/* 隐藏的分享卡片渲染区 */}
       {report && <ShareCardView report={report} lang={lang} targetRef={shareRef} />}
 
-      {/* 导航栏 */}
       <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -195,10 +173,8 @@ export default function HomePage() {
         </div>
       </nav>
 
-      {/* 核心内容区 */}
       <div className="max-w-7xl mx-auto px-4 py-8 space-y-6 flex-1">
         
-        {/* 搜索与热门 */}
         <section className="max-w-4xl mx-auto space-y-4">
             <div className="text-center mb-8">
                 <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">
@@ -246,7 +222,6 @@ export default function HomePage() {
             )}
         </section>
 
-        {/* 报告主体 */}
         {report && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Hero Section */}
@@ -295,7 +270,7 @@ export default function HomePage() {
                                   {report.identity.isContract ? D.contract : D.wallet}
                               </span>
                               <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
-                                  {lang === 'cn' ? (PERSONA_MAP[report.risk.personaType] || report.risk.personaType) : report.risk.personaType}
+                                  {getTrans(report.risk.personaType, lang)}
                               </span>
                               
                               <div className="flex gap-1 ml-1 text-slate-500">
@@ -353,13 +328,11 @@ export default function HomePage() {
                </div>
             </div>
 
-            {/* Left Col: Approvals & Assets */}
             <div className="lg:col-span-7 space-y-5">
                 {report.approvals && <ApprovalsCard approvals={report.approvals} lang={lang} />}
                 <AssetTable assets={report.assets} lang={lang} />
             </div>
 
-            {/* Right Col: Txs & Pro Ad */}
             <div className="lg:col-span-5 flex flex-col gap-5">
                 <div className="flex-1">
                     <RealTransactionFeed txs={report.activity.recentTxs} address={report.address} lang={lang} />
@@ -395,7 +368,7 @@ export default function HomePage() {
                 </div>
             </div>
         )}
-
+        
         {/* Footer */}
         <footer className="mt-12 py-8 border-t border-slate-900 text-center space-y-4">
             <div className="flex items-center justify-center gap-6">
