@@ -137,34 +137,36 @@ export default function HomePage() {
 
       // ✅ 关键：在 clone 的 DOM 里移除/屏蔽包含 lab/oklch 的样式表，避免 html2canvas 解析报错
       onclone: (clonedDoc) => {
-        // 1) 移除可能包含现代色彩函数的 <style>
-        clonedDoc.querySelectorAll("style").forEach((styleEl) => {
-          const cssText = styleEl.textContent || "";
-          if (
-            cssText.includes("lab(") ||
-            cssText.includes("oklab(") ||
-            cssText.includes("oklch(") ||
-            cssText.includes("color-mix(")
-          ) {
-            styleEl.remove();
-          }
-        });
+  // 1️⃣ 移除所有外链 CSS
+  clonedDoc
+    .querySelectorAll('link[rel="stylesheet"]')
+    .forEach(el => el.remove());
 
-        // 2) 也可以选择移除部分 <link rel="stylesheet">（更激进，必要时再开）
-        // clonedDoc.querySelectorAll('link[rel="stylesheet"]').forEach((linkEl) => linkEl.remove());
+  // 2️⃣ 移除包含 lab / oklch 的 style
+  clonedDoc.querySelectorAll("style").forEach((styleEl) => {
+    const cssText = styleEl.textContent || "";
+    if (
+      cssText.includes("lab(") ||
+      cssText.includes("oklab(") ||
+      cssText.includes("oklch(") ||
+      cssText.includes("color-mix(")
+    ) {
+      styleEl.remove();
+    }
+  });
 
-        // 3) 强行把 share 卡片内所有颜色兜底成简单可解析值（双保险）
-        const style = clonedDoc.createElement("style");
-        style.textContent = `
-          [data-share-card] * {
-            color: inherit !important;
-            background: transparent !important;
-            box-shadow: none !important;
-            filter: none !important;
-          }
-        `;
-        clonedDoc.head.appendChild(style);
-      },
+  // 3️⃣ 强制兜底 share 卡片样式
+  const style = clonedDoc.createElement("style");
+  style.textContent = `
+    [data-share-card], [data-share-card] * {
+      background: transparent !important;
+      background-image: none !important;
+      box-shadow: none !important;
+      filter: none !important;
+    }
+  `;
+  clonedDoc.head.appendChild(style);
+},
     });
 
     const image = canvas.toDataURL("image/png");

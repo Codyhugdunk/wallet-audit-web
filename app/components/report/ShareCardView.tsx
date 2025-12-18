@@ -24,7 +24,7 @@ export function ShareCardView({ report, lang, targetRef }: { report: ShareReport
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, zIndex: -9999, opacity: 0, pointerEvents: 'none' }}>
-            <div ref={targetRef} style={{ width: '400px', backgroundColor: bgMain, padding: '24px', fontFamily: 'Arial, sans-serif', border: '1px solid #333', borderRadius: '16px', position: 'relative', display: 'flex', flexDirection: 'column', gap: '24px', overflow: 'hidden' }}>
+            <div ref={targetRef} data-share-card style={{ width: '400px', backgroundColor: bgMain, padding: '24px', fontFamily: 'Arial, sans-serif', border: '1px solid #333', borderRadius: '16px', position: 'relative', display: 'flex', flexDirection: 'column', gap: '24px', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', backgroundColor: accentColor }}></div>
                 
                 {/* Header: 纯 SVG 图标，无 className */}
