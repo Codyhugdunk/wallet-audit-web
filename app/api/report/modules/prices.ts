@@ -1,80 +1,93 @@
 // app/api/report/modules/prices.ts
-import { fetchJsonWithTimeout } from "../utils/fetch";
+// v3.4 - Price Reliability Upgrade: Multi-source ETH, Chunked Token Prices
+
 import { cached } from "../utils/cache";
+import { fetchJsonWithTimeout } from "../utils/fetch";
 
-// ✅ 最后的防线：如果所有 API 都挂了，就用这个大概的价格
-// 防止页面出现 $0 这种低级错误
-const FALLBACK_ETH_PRICE = 3900; 
+const FALLBACK_ETH_PRICE = 3000; // ✅ 永远不要是 0（避免你看到“巨鲸=0”时更难判断到底哪里坏了）
 
+function toNum(x: any): number | null {
+  const n = Number(x);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+// ✅ ETH：Binance -> CoinGecko -> fallback
 export async function getEthPrice(): Promise<number> {
   const key = "eth-price-usd";
-  // 缓存 5 分钟，避免频繁撞墙
-  return cached(key, 5 * 60 * 1000, async () => {
+  return cached(key, 60 * 1000, async () => {
+    // 1) Binance
     try {
-      // 1️⃣ 优先尝试 CoinGecko
-      const cgRes = await fetchJsonWithTimeout(
-        "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
-        {},
-        2000 // 2秒超时
-      );
-      if (cgRes?.ethereum?.usd) {
-        return Number(cgRes.ethereum.usd);
-      }
-    } catch (e) {
-      console.warn("CoinGecko ETH price failed, trying backup...");
-    }
-
-    try {
-      // 2️⃣ 备用尝试 Binance API (公共接口)
-      const binanceRes = await fetchJsonWithTimeout(
+      const binanceRes: any = await fetchJsonWithTimeout(
         "https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT",
         {},
-        2000
+        2500
       );
-      if (binanceRes?.price) {
-        return Number(binanceRes.price);
-      }
-    } catch (e) {
-      console.warn("Binance ETH price failed.");
+      const p = toNum(binanceRes?.price);
+      if (p) return p;
+    } catch {
+      // ignore
     }
 
-    // 3️⃣ 实在不行，返回兜底价
-    console.error("All price APIs failed, using fallback.");
+    // 2) CoinGecko simple price
+    try {
+      const cgRes: any = await fetchJsonWithTimeout(
+        "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
+        {},
+        3000
+      );
+      const p = toNum(cgRes?.ethereum?.usd);
+      if (p) return p;
+    } catch {
+      // ignore
+    }
+
+    console.warn("⚠️ All ETH price sources failed. Using fallback.");
     return FALLBACK_ETH_PRICE;
   });
 }
 
-// 批量获取代币价格 (主要用于 Assets 列表)
-export async function getTokenPrices(addresses: string[]): Promise<Record<string, number>> {
-  if (!addresses.length) return {};
-  
-  // CoinGecko 免费版不支持太长的 URL，所以我们只取前 10 个重要的查一下
-  // 避免 URL 过长导致 414 错误
-  const slice = addresses.slice(0, 10).join(",");
-  const key = `token-prices-${slice}`;
+// CoinGecko token price endpoint supports multiple contract addresses (comma separated).
+// 414/URL too long → chunk it.
+const CG_TOKEN_ENDPOINT = "https://api.coingecko.com/api/v3/simple/token_price/ethereum?vs_currencies=usd&contract_addresses=";
 
-  return cached(key, 5 * 60 * 1000, async () => {
-    try {
-      // 注意：CoinGecko 查代币价格需要用 contract addresses
-      // 免费版限制较多，这里尽力而为
-      const url = `https://api.coingecko.com/api/v3/simple/token_price/ethereum?contract_addresses=${slice}&vs_currencies=usd`;
-      
-      const res = await fetchJsonWithTimeout(url, {}, 3000);
-      
-      const prices: Record<string, number> = {};
-      if (res) {
-        for (const addr of addresses) {
-            // CoinGecko 返回的 key 也是小写的
-            const lowerAddr = addr.toLowerCase();
-            if (res[lowerAddr]?.usd) {
-                prices[lowerAddr] = res[lowerAddr].usd;
-            }
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+// ✅ Token prices：分批查询 + 缓存
+export async function getTokenPrices(addresses: string[]): Promise<Record<string, number>> {
+  if (!addresses?.length) return {};
+
+  // 统一小写，避免 key 对不上
+  const addrs = Array.from(new Set(addresses.map((a) => a.toLowerCase())));
+
+  const cacheKey = `token-prices:${addrs.slice(0, 80).join(",")}:${addrs.length}`; // key 不要无限长
+  return cached(cacheKey, 5 * 60 * 1000, async () => {
+    const prices: Record<string, number> = {};
+
+    // 每批 40 个，URL 不容易爆
+    const groups = chunk(addrs, 40);
+
+    // 顺序请求（稳定优先，避免并发把 CoinGecko 打挂）
+    for (const g of groups) {
+      const url = `${CG_TOKEN_ENDPOINT}${encodeURIComponent(g.join(","))}`;
+      try {
+        const res: any = await fetchJsonWithTimeout(url, {}, 4000);
+        if (res && typeof res === "object") {
+          for (const addr of g) {
+            const p = toNum(res?.[addr]?.usd);
+            if (p) prices[addr] = p;
+          }
         }
+      } catch (e) {
+        // 单批失败不影响整体
+        console.warn("⚠️ Token price batch failed.", e);
       }
-      return prices;
-    } catch (e) {
-      console.warn("Token prices fetch failed", e);
-      return {}; // 失败返回空对象，不影响主流程
     }
+
+    return prices;
   });
 }
