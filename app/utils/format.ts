@@ -32,3 +32,13 @@ export function formatEth(wei: string) {
     if (val < 0.0001 && val > 0) return "<0.0001";
     return val.toFixed(4);
 }
+
+export function calculateWalletAge(createdAt: number | null, lang: 'cn' | 'en') {
+    if (!createdAt) return lang === 'cn' ? "未知" : "Unknown";
+    const days = Math.floor((Date.now() - createdAt) / (1000 * 60 * 60 * 24));
+    const years = (days / 365).toFixed(1);
+    
+    if (days < 30) return lang === 'cn' ? `${days} 天` : `${days} Days`;
+    if (days < 365) return lang === 'cn' ? `${Math.floor(days/30)} 个月` : `${Math.floor(days/30)} Months`;
+    return lang === 'cn' ? `${years} 年` : `${years} Years`;
+}

@@ -30,6 +30,14 @@ export type AssetModule = {
   priceWarning: string | null;
 }
 
+// ✅ 新增：交易对手结构
+export interface Counterparty {
+  address: string;
+  count: number;
+  label?: string; // 比如 "Uniswap", "Binance"
+  lastInteraction: number;
+}
+
 export interface ActivityModule {
   txCount: number | string;
   activeDays: number;
@@ -37,6 +45,8 @@ export interface ActivityModule {
   topContracts: string[];
   weeklyHistogram: any[];
   recentTxs: any[];
+  // ✅ 新增字段
+  topCounterparties: Counterparty[];
 }
 
 export interface GasModule {
@@ -74,19 +84,18 @@ export interface SummaryModule {
   text: string;
 }
 
-// ✅ 新增：授权模块定义
 export interface ApprovalItem {
   token: string;
   spender: string;
-  spenderName: string; // 如 "Uniswap V2" 或 "Unknown Contract"
-  amount: string;      // "Unlimited" 或 具体数字
-  riskLevel: "High" | "Low"; // 高危还是安全
-  lastUpdated: number; // 时间戳
+  spenderName: string;
+  amount: string;
+  riskLevel: "High" | "Low";
+  lastUpdated: number;
   txHash: string;
 }
 
 export interface ApprovalsModule {
-  riskCount: number; // 高危授权数量
+  riskCount: number;
   items: ApprovalItem[];
 }
 
@@ -99,7 +108,7 @@ export interface ReportData {
   activity: ActivityModule;
   gas: GasModule;
   risk: RiskModule;
-  approvals: ApprovalsModule; // ✅ 注册模块
+  approvals: ApprovalsModule;
   share: ShareModule;
   meta: {
     version: string;

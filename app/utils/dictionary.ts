@@ -66,6 +66,9 @@ export const DICT = {
     placeholder: "输入 ETH 地址或 ENS...",
     analyze: "立即审计",
     analyzing: "正在分析链上数据...",
+    walletAge: "钱包年龄",
+    cpTitle: "常用交互对象",
+    cpCount: "次交互",
     
     // 资产模块
     assetsTitle: "资产分布详情",
@@ -131,6 +134,9 @@ export const DICT = {
     placeholder: "Enter ETH Address / ENS...",
     analyze: "Audit",
     analyzing: "Analyzing...",
+    walletAge: "Wallet Age",
+    cpTitle: "Top Counterparties",
+    cpCount: "txs",
     
     assetsTitle: "Asset Allocation",
     assetHeader: "Asset",

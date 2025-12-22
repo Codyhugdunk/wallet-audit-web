@@ -1,176 +1,143 @@
 // app/api/report/modules/assets.ts
 import { fetchJsonWithTimeout } from "../utils/fetch";
-import { formatUnits, safeFloat } from "../utils/hex";
+import { formatUnits, hexToBigInt, safeFloat } from "../utils/hex";
+import { cached } from "../utils/cache";
 import { getEthPrice, getTokenPrices } from "./prices";
-import type { AssetModule } from "./types";
+import { AssetModule, TokenBalance } from "./types";
 
 const ALCHEMY_RPC = process.env.ALCHEMY_RPC_URL!;
 
-interface AlchemyTokenBalance {
-  contractAddress: string;
-  tokenBalance: string; // hex string
+const STABLE_SYMBOLS = new Set(["USDT", "USDC", "DAI", "USDE", "USDS", "FDUSD", "TUSD", "USDP", "BUSD"]);
+const MAJOR_SYMBOLS = new Set(["WETH", "WBTC", "CBETH", "RETH", "STETH", "EZETH", "UNI", "AAVE", "LDO", "LINK", "TRUMP", "TROG", "MAGA"]);
+const MEME_KEYWORDS = ["PEPE", "DOGE", "SHIB", "FLOKI", "BONK", "WIF", "MOG", "TURBO", "SPX"];
+
+function classifyToken(symbol: string): "Stablecoins" | "Majors" | "Meme" | "Others" {
+  if (!symbol) return "Others";
+  const sym = symbol.toUpperCase();
+  if (STABLE_SYMBOLS.has(sym)) return "Stablecoins";
+  if (MAJOR_SYMBOLS.has(sym)) return "Majors";
+  for (const key of MEME_KEYWORDS) { if (sym.includes(key)) return "Meme"; }
+  return "Others";
 }
 
-function isEthAddress(addr: string) {
-  return /^0x[a-fA-F0-9]{40}$/.test(addr);
-}
-
-async function alchemyGetTokenBalances(address: string) {
-  const res = await fetchJsonWithTimeout(
-    ALCHEMY_RPC,
-    {
-      method: "POST",
+// 1. 获取 ETH 余额 (独立函数，高优先级，5秒超时)
+async function getEthBalance(address: string): Promise<number> {
+  try {
+    const res = await fetchJsonWithTimeout(ALCHEMY_RPC, {
+      method: "POST", 
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "alchemy_getTokenBalances",
-        params: [address],
-      }),
-    },
-    6000
-  );
-  return (res?.result?.tokenBalances ?? []) as AlchemyTokenBalance[];
+      body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "eth_getBalance", params: [address, "latest"] }),
+    }, 5000); 
+    if (!res?.result) return 0;
+    return formatUnits(hexToBigInt(res.result), 18);
+  } catch (e) {
+    console.error("ETH Balance fetch failed:", e);
+    return 0; 
+  }
 }
 
-async function alchemyGetBalance(address: string) {
-  const res = await fetchJsonWithTimeout(
-    ALCHEMY_RPC,
-    {
-      method: "POST",
+interface RawTokenBalance { contractAddress: string; tokenBalance: string; }
+
+// 2. 获取代币余额 (带 2.5秒 熔断)
+async function getRawTokenBalancesSafe(address: string): Promise<RawTokenBalance[]> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    
+    const res = await fetch(ALCHEMY_RPC, {
+      method: "POST", 
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "eth_getBalance",
-        params: [address, "latest"],
-      }),
-    },
-    6000
-  );
-  return (res?.result as string) || "0x0";
+      body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "alchemy_getTokenBalances", params: [address, "erc20"] }),
+      signal: controller.signal
+    }).then(r => r.json());
+    
+    clearTimeout(timeoutId);
+    return res?.result?.tokenBalances?.filter((t: any) => t?.tokenBalance && t?.tokenBalance !== "0x0") ?? [];
+  } catch (e) {
+    console.warn("⚠️ Token fetch skipped (Time limit or Error).");
+    return []; 
+  }
 }
 
-// 你项目里如果有 token metadata 获取函数，就用你已有的；这里给一个最稳 fallback
-async function alchemyGetTokenMetadata(contractAddress: string) {
-  const res = await fetchJsonWithTimeout(
-    ALCHEMY_RPC,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "alchemy_getTokenMetadata",
-        params: [contractAddress],
-      }),
-    },
-    6000
-  );
-  return res?.result ?? null;
+interface TokenMeta { symbol: string; decimals: number; }
+async function fetchTokenMeta(contractAddress: string): Promise<TokenMeta> {
+  const key = `token-meta:${contractAddress.toLowerCase()}`;
+  return cached(key, 60 * 60 * 24 * 7 * 1000, async () => {
+    try {
+      const res = await fetchJsonWithTimeout(ALCHEMY_RPC, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "alchemy_getTokenMetadata", params: [contractAddress] }),
+      }, 1000);
+      return { symbol: (res?.result?.symbol as string) || "UNKNOWN", decimals: typeof res?.result?.decimals === "number" ? res.result.decimals : 18 };
+    } catch { return { symbol: "UNKNOWN", decimals: 18 }; }
+  });
 }
 
 export async function buildAssetsModule(address: string): Promise<AssetModule> {
-  const addr = address.toLowerCase();
-  if (!isEthAddress(addr)) {
-    return {
-      eth: { amount: 0, value: 0 },
-      tokens: [],
-      totalValue: 0,
-      allocation: [],
-      otherTokens: [],
-      priceWarning: "",
-    } as any;
-  }
-
-  const [ethPrice, ethBalHex, tokenBalances] = await Promise.all([
-    getEthPrice(),
-    alchemyGetBalance(addr),
-    alchemyGetTokenBalances(addr),
-  ]);
-
-  // ETH
-  const ethAmount = safeFloat(formatUnits(BigInt(ethBalHex), 18), 0);
+  // Step 1: 必查 ETH
+  const ethPrice = await getEthPrice();
+  const ethAmount = await getEthBalance(address);
   const ethValue = safeFloat(ethAmount * ethPrice, 0);
 
-  // 过滤掉 0 余额
-  const nonZero = tokenBalances
-    .filter((t) => t?.contractAddress && t?.tokenBalance && t.tokenBalance !== "0x0")
-    .map((t) => ({
-      contractAddress: t.contractAddress.toLowerCase(),
-      tokenBalanceHex: t.tokenBalance,
-    }));
+  const fallbackResult: AssetModule = {
+      eth: { amount: ethAmount, value: ethValue },
+      tokens: [],
+      totalValue: ethValue,
+      allocation: ethValue > 0 ? [{ category: "ETH", value: ethValue, ratio: 1 }] : [],
+      otherTokens: [],
+      priceWarning: null
+  };
 
-  // 拉 metadata（symbol/decimals）
-  const metaList = await Promise.all(
-    nonZero.map(async (t) => {
-      try {
-        const m = await alchemyGetTokenMetadata(t.contractAddress);
-        const decimals =
-          typeof m?.decimals === "number" ? m.decimals : 18;
-        const symbol =
-          typeof m?.symbol === "string" && m.symbol ? m.symbol : "UNKNOWN";
-        return { ...t, decimals, symbol };
-      } catch {
-        return { ...t, decimals: 18, symbol: "UNKNOWN" };
-      }
-    })
-  );
+  // Step 2: 选查代币
+  try {
+      const allRawTokens = await getRawTokenBalancesSafe(address);
 
-  // 拉价格（✅ 全量分块）
-  const priceMap = await getTokenPrices(metaList.map((x) => x.contractAddress));
+      if (allRawTokens.length === 0) return fallbackResult;
 
-  const tokens = metaList.map((t) => {
-    const amount = safeFloat(
-      formatUnits(BigInt(t.tokenBalanceHex), t.decimals),
-      0
-    );
+      // 只取前 30 个大额代币 (保平安)
+      const topTokens = allRawTokens
+        .sort((a, b) => b.tokenBalance.length - a.tokenBalance.length || (b.tokenBalance > a.tokenBalance ? 1 : -1))
+        .slice(0, 30);
 
-    const price = priceMap[t.contractAddress];
-    const hasPrice = typeof price === "number" && price > 0;
+      const tokenAddresses = topTokens.map((t) => t.contractAddress);
+      const uniqueAddresses = Array.from(new Set(tokenAddresses.map((a) => a.toLowerCase())));
 
-    // ✅ value=0 不代表资产=0，只代表“未计入估值”
-    const value = hasPrice ? safeFloat(amount * price, 0) : 0;
+      const [tokenPrices, metas] = await Promise.all([
+        getTokenPrices(uniqueAddresses),
+        Promise.all(uniqueAddresses.map((addr) => fetchTokenMeta(addr))),
+      ]);
 
-    return {
-      contractAddress: t.contractAddress,
-      symbol: t.symbol,
-      amount,
-      value,
-      decimals: t.decimals,
-      hasPrice,
-    };
-  });
+      const metaMap: Record<string, TokenMeta> = {};
+      uniqueAddresses.forEach((addr, idx) => { metaMap[addr] = metas[idx]; });
 
-  // ✅ totalValue：只统计可定价资产（ETH 永远可定价，因为我们有 fallback）
-  const pricedTokenValue = tokens.reduce((s, x) => s + (x.hasPrice ? x.value : 0), 0);
-  const totalValue = safeFloat(ethValue + pricedTokenValue, 0);
+      const tokens: TokenBalance[] = topTokens.map((t) => {
+        const addr = t.contractAddress.toLowerCase();
+        const meta = metaMap[addr] || { symbol: "UNKNOWN", decimals: 18 };
+        const amount = formatUnits(hexToBigInt(t.tokenBalance), meta.decimals);
+        const price = tokenPrices[addr] ?? 0;
+        const value = safeFloat(amount * price, 0);
+        return { contractAddress: addr, symbol: meta.symbol, amount, value, decimals: meta.decimals, hasPrice: price > 0 };
+      });
 
-  // 统计缺价
-  const unpriced = tokens.filter((t) => !t.hasPrice);
-  const unpricedCount = unpriced.length;
+      tokens.sort((a, b) => b.value - a.value);
+      const tokensValue = tokens.reduce((sum, t) => sum + t.value, 0);
+      const totalValue = safeFloat(ethValue + tokensValue, 0);
 
-  // allocation（按你原逻辑分类即可，这里保持一个最小可用）
-  const allocation = [
-    { category: "ETH", value: ethValue, ratio: totalValue > 0 ? ethValue / totalValue : 0 },
-    { category: "Stablecoins", value: 0, ratio: 0 },
-    { category: "Others", value: totalValue > 0 ? pricedTokenValue / totalValue * totalValue : pricedTokenValue, ratio: totalValue > 0 ? pricedTokenValue / totalValue : 0 },
-    { category: "Meme", value: 0, ratio: 0 },
-  ];
+      const acc: { [cat: string]: number } = { "ETH": 0, "Stablecoins": 0, "Majors": 0, "Meme": 0, "Others": 0 };
+      if (ethValue > 0) acc["ETH"] = ethValue;
+      for (const t of tokens) { acc[classifyToken(t.symbol)] = (acc[classifyToken(t.symbol)] || 0) + t.value; }
 
-  const priceWarning =
-    unpricedCount > 0
-      ? `有 ${unpricedCount} 个代币缺少价格，估值仅统计可定价资产（并不代表这些代币为 0）。`
-      : "";
+      const allocation = Object.entries(acc).filter(([_, val]) => val > 0).map(([category, value]) => ({ category, value, ratio: totalValue > 0 ? value / totalValue : 0 })).sort((a, b) => b.value - a.value);
+      const otherTokens = tokens.filter((t) => !t.hasPrice || t.value < 5);
 
-  return {
-    eth: { amount: ethAmount, value: ethValue },
-    tokens,
-    totalValue,
-    allocation,
-    otherTokens: unpriced,
-    priceWarning,
-    // ✅ 你 types.ts 里如果没字段可以先不加；若已加就打开下面
-    // priceStats: { unpricedCount }
-  } as any;
+      return { eth: { amount: ethAmount, value: ethValue }, tokens, totalValue, allocation, otherTokens, priceWarning: null };
+
+  } catch (error) {
+      console.error("Token Error, fallback:", error);
+      return fallbackResult;
+  }
+}
+
+export async function getAssets(address: string): Promise<AssetModule> {
+  return buildAssetsModule(address);
 }

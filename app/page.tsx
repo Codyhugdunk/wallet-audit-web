@@ -2,29 +2,27 @@
 
 import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
-// 引入所有需要的图标
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
-  ArrowUpRight, Twitter, Send, Clock, Share2,
-  Zap, Calendar, Flame, Layers, ShieldAlert, Lock
+  Clock, Zap, Calendar, Flame, Layers, Share2, ArrowUpRight, Twitter, Send
 } from "lucide-react";
 
-// ✅ 确保路径正确 (根据你的截图，utils 和 components 在 app 目录下)
-import { DICT, PERSONA_MAP, getTrans } from "./utils/dictionary";
-import { formatMoney } from "./utils/format";
+// ✅ 引入工具
+import { DICT, getTrans, PERSONA_MAP } from "./utils/dictionary";
+import { formatMoney, calculateWalletAge } from "./utils/format"; // 引入计算年龄
 
-// ✅ 引入拆分好的组件
+// ✅ 引入组件 (保持模块化)
 import { WalletAuditLogo } from "./components/ui/WalletAuditLogo";
 import { TrendingWallets } from "./components/report/TrendingWallets";
 import { ApprovalsCard } from "./components/report/ApprovalsCard";
 import { RealTransactionFeed } from "./components/report/RealTransactionFeed";
 import { AssetTable } from "./components/report/AssetTable";
 import { ShareCardView } from "./components/report/ShareCardView";
+import { CounterpartyCard } from "./components/report/CounterpartyCard"; // 引入新组件
 
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
 const TWITTER_URL = "https://x.com/PhilWong19";
 
-// Report 类型定义
 type Report = any;
 type FavoriteItem = { address: string; nickname: string; addedAt: number; tags?: string[] };
 
@@ -104,83 +102,32 @@ export default function HomePage() {
       if (!report) return "";
       const { assets, identity, risk } = report;
       const totalVal = formatMoney(assets.totalValue, lang);
-      const ageDate = identity.createdAt ? new Date(identity.createdAt).getFullYear() : null;
       const ethVal = assets.eth.value;
       const topToken = assets.tokens.length > 0 ? assets.tokens[0] : null;
       const topAsset = (topToken && topToken.value > ethVal) ? topToken.symbol : "ETH";
-      const persona = getTrans(risk.personaType, lang);
+      const persona = getTrans(report.risk.personaType, lang);
 
-      let text = "";
+      // 简单摘要逻辑
       if (lang === 'cn') {
-          if (risk.score === 0) return `🚨 **红色警报**：此地址已被标记为「${persona}」。资金来源极度可疑，建议立即拉黑！`;
-          if (totalVal.includes("亿") || totalVal.includes("B")) return `🐋 **深海巨鳄**：坐拥 ${totalVal} 资产的顶级玩家。${persona === 'Maxi' ? '他是坚定的信仰者。' : '资产配置多元。'}`;
-          if (ethVal > assets.totalValue * 0.9) return `💎 **钻石手**：资产规模 ${totalVal}，且 90% 以上梭哈了 ETH。`;
-          return `📊 **审计报告**：当前管理 ${totalVal}，核心配置为 ${topAsset}。系统评级为「${persona}」。`;
-      } else {
-          if (risk.score === 0) return `🚨 **RED FLAG**: Identified as "${persona}". Do NOT interact!`;
-          if (ethVal > assets.totalValue * 0.9) return `💎 **Diamond Hand**: Holding ${totalVal} with >90% exposure to ETH.`;
-          return `📊 **Audit**: Managing ${totalVal}, focused on ${topAsset}. Rated as "${persona}".`;
+          return `当前管理 ${totalVal}，核心配置为 ${topAsset}。系统评级为「${persona}」。`;
       }
+      return `Managing ${totalVal}, focused on ${topAsset}. Rated as "${persona}".`;
   };
 
   const handleShare = async () => {
-  if (!shareRef.current) return;
-  setGeneratingImg(true);
-
-  try {
-    const canvas = await html2canvas(shareRef.current as HTMLElement, {
-      backgroundColor: "#000000",
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      allowTaint: true,
-
-      // ✅ 关键：在 clone 的 DOM 里移除/屏蔽包含 lab/oklch 的样式表，避免 html2canvas 解析报错
-      onclone: (clonedDoc) => {
-  // 1️⃣ 移除所有外链 CSS
-  clonedDoc
-    .querySelectorAll('link[rel="stylesheet"]')
-    .forEach(el => el.remove());
-
-  // 2️⃣ 移除包含 lab / oklch 的 style
-  clonedDoc.querySelectorAll("style").forEach((styleEl) => {
-    const cssText = styleEl.textContent || "";
-    if (
-      cssText.includes("lab(") ||
-      cssText.includes("oklab(") ||
-      cssText.includes("oklch(") ||
-      cssText.includes("color-mix(")
-    ) {
-      styleEl.remove();
-    }
-  });
-
-  // 3️⃣ 强制兜底 share 卡片样式
-  const style = clonedDoc.createElement("style");
-  style.textContent = `
-    [data-share-card], [data-share-card] * {
-      background: transparent !important;
-      background-image: none !important;
-      box-shadow: none !important;
-      filter: none !important;
-    }
-  `;
-  clonedDoc.head.appendChild(style);
-},
-    });
-
-    const image = canvas.toDataURL("image/png");
-    const link = document.createElement("a");
-    link.href = image;
-    link.download = `WalletAudit-${report?.address.slice(0, 6)}.png`;
-    link.click();
-  } catch (e: any) {
-    console.error("Share gen failed", e);
-    alert(`生成失败: ${e.message || "未知错误"}`);
-  } finally {
-    setGeneratingImg(false);
-  }
-};
+      if (!shareRef.current) return;
+      setGeneratingImg(true);
+      try {
+          const canvas = await html2canvas(shareRef.current as HTMLElement, {
+              backgroundColor: "#000000", scale: 2, useCORS: true, logging: false, allowTaint: true,
+          });
+          const image = canvas.toDataURL("image/png");
+          const link = document.createElement("a");
+          link.href = image;
+          link.download = `WalletAudit-${report?.address.slice(0,6)}.png`;
+          link.click();
+      } catch (e) { alert("Generate failed"); } finally { setGeneratingImg(false); }
+  };
 
   return (
     <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20 flex flex-col">
@@ -255,11 +202,13 @@ export default function HomePage() {
                               )
                           })()}
                       </div>
+                      
                       <div className="md:hidden text-right">
                           <div className="text-xs text-slate-500 uppercase">{D.netWorth}</div>
                           <div className="text-xl font-bold text-white font-mono">{formatMoney(report.assets.totalValue, lang)}</div>
                       </div>
                   </div>
+
                   <div className="flex-1 space-y-4 min-w-0">
                       <div>
                           <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
@@ -283,24 +232,48 @@ export default function HomePage() {
                               </div>
                           </div>
                       </div>
+
+                      {/* Insight */}
                       <div className="p-3 bg-slate-900/40 rounded-lg border border-slate-800/50 text-xs md:text-sm text-slate-300 leading-relaxed font-sans">
                          <span className="text-blue-400 font-bold mr-2">⚡️ Insight:</span>{getSummaryText()}
                       </div>
+
+                      {/* 核心指标 (加入钱包年龄) */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
-                            <Zap size={14} className="text-yellow-500 shrink-0" /><div className="min-w-0"><div className="text-[10px] text-slate-500 uppercase truncate">{D.metricTx}</div><div className="text-sm font-mono font-bold truncate">{report.activity.txCount}</div></div>
+                            <Calendar size={14} className="text-blue-500 shrink-0" />
+                            <div className="min-w-0">
+                               <div className="text-[10px] text-slate-500 uppercase truncate">{D.walletAge}</div>
+                               <div className="text-sm font-mono font-bold truncate">
+                                   {/* ✅ 使用新函数计算年龄 */}
+                                   {calculateWalletAge(report.identity.createdAt, lang)}
+                               </div>
+                            </div>
                          </div>
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
-                            <Calendar size={14} className="text-blue-500 shrink-0" /><div className="min-w-0"><div className="text-[10px] text-slate-500 uppercase truncate">{D.metricDays}</div><div className="text-sm font-mono font-bold truncate">{report.activity.activeDays}</div></div>
+                            <Zap size={14} className="text-yellow-500 shrink-0" />
+                            <div className="min-w-0">
+                               <div className="text-[10px] text-slate-500 uppercase truncate">{D.metricTx}</div>
+                               <div className="text-sm font-mono font-bold truncate">{report.activity.txCount}</div>
+                            </div>
                          </div>
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
-                            <Flame size={14} className="text-orange-500 shrink-0" /><div className="min-w-0"><div className="text-[10px] text-slate-500 uppercase truncate">{D.metricGas}</div><div className="text-sm font-mono font-bold truncate">{formatMoney(report.gas.totalGasUsd, lang)}</div></div>
+                            <Flame size={14} className="text-orange-500 shrink-0" />
+                            <div className="min-w-0">
+                               <div className="text-[10px] text-slate-500 uppercase truncate">{D.metricGas}</div>
+                               <div className="text-sm font-mono font-bold truncate">{formatMoney(report.gas.totalGasUsd, lang)}</div>
+                            </div>
                          </div>
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
-                            <Layers size={14} className="text-purple-500 shrink-0" /><div className="min-w-0"><div className="text-[10px] text-slate-500 uppercase truncate">{D.metricInteract}</div><div className="text-sm font-mono font-bold truncate">{report.activity.contractsInteracted}</div></div>
+                            <Layers size={14} className="text-purple-500 shrink-0" />
+                            <div className="min-w-0">
+                               <div className="text-[10px] text-slate-500 uppercase truncate">{D.metricInteract}</div>
+                               <div className="text-sm font-mono font-bold truncate">{report.activity.contractsInteracted}</div>
+                            </div>
                          </div>
                       </div>
                   </div>
+
                   <div className="hidden md:block text-right min-w-[120px]">
                       <div className="text-[11px] text-slate-500 uppercase tracking-widest mb-1">{D.netWorth}</div>
                       <div className="text-3xl font-bold text-white font-mono tracking-tight">{formatMoney(report.assets.totalValue, lang)}</div>
@@ -310,7 +283,13 @@ export default function HomePage() {
             </div>
 
             <div className="lg:col-span-7 space-y-5">
+                {/* 授权检测 */}
                 {report.approvals && <ApprovalsCard approvals={report.approvals} lang={lang} />}
+                
+                {/* 交易对手 (新功能) */}
+                {report.activity.topCounterparties && <CounterpartyCard data={report.activity.topCounterparties} lang={lang} />}
+                
+                {/* 资产列表 */}
                 <AssetTable assets={report.assets} lang={lang} />
             </div>
 
