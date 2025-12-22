@@ -1,3 +1,6 @@
+// app/utils/format.ts
+
+// 1. 金额格式化
 export function formatMoney(value: number, lang: 'cn' | 'en') {
   if (!Number.isFinite(value)) return "$0";
   const abs = Math.abs(value);
@@ -15,6 +18,7 @@ export function formatMoney(value: number, lang: 'cn' | 'en') {
   return (value < 0 ? "-" : "") + "$" + res;
 }
 
+// 2. 时间格式化 (几分钟前)
 export function formatTimeAgo(ts: number, lang: 'cn' | 'en') {
   const seconds = Math.floor((Date.now() - ts) / 1000);
   if (seconds < 60) return lang === 'cn' ? "刚刚" : "Just now";
@@ -26,6 +30,7 @@ export function formatTimeAgo(ts: number, lang: 'cn' | 'en') {
   return lang === 'cn' ? `${days}天前` : `${days}d ago`;
 }
 
+// 3. ETH 数量格式化
 export function formatEth(wei: string) {
     if (!wei) return "0";
     const val = Number(wei) / 1e18;
@@ -33,6 +38,7 @@ export function formatEth(wei: string) {
     return val.toFixed(4);
 }
 
+// ✅ 4. 钱包年龄计算 (之前你缺的就是这个！)
 export function calculateWalletAge(createdAt: number | null, lang: 'cn' | 'en') {
     if (!createdAt) return lang === 'cn' ? "未知" : "Unknown";
     const days = Math.floor((Date.now() - createdAt) / (1000 * 60 * 60 * 24));
