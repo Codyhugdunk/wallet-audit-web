@@ -36,7 +36,18 @@ export async function GET(request: Request) {
 
     // 3. 安全解包数据 (失败则给空默认值)
     const assets = results[0].status === "fulfilled" ? results[0].value : { eth: {amount:0, value:0}, tokens:[], totalValue:0, allocation:[], otherTokens:[], priceWarning:null };
-    const activity = results[1].status === "fulfilled" ? results[1].value : { txCount: 0, activeDays: 0, contractsInteracted: 0, topContracts: [], weeklyHistogram: [], recentTxs: [] };
+    
+    // ✅ 修复：补全了 topCounterparties: []
+    const activity = results[1].status === "fulfilled" ? results[1].value : { 
+        txCount: 0, 
+        activeDays: 0, 
+        contractsInteracted: 0, 
+        topContracts: [], 
+        weeklyHistogram: [], 
+        recentTxs: [], 
+        topCounterparties: [] 
+    };
+    
     const gas = results[2].status === "fulfilled" ? results[2].value : { txCount: 0, totalGasEth: 0, totalGasUsd: 0, topTxs: [] };
     const approvals = results[3].status === "fulfilled" ? results[3].value : { riskCount: 0, items: [] };
 
