@@ -287,7 +287,32 @@ export default function HomePage() {
 
             <div className="lg:col-span-7 space-y-5">
                 {report.approvals && <ApprovalsCard approvals={report.approvals} lang={lang} />}
-                
+                {/* 💰 变现模块：安保建议 (Affiliate Link) */}
+<div className="bg-gradient-to-r from-slate-900 to-slate-900/50 border border-indigo-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div className="flex items-center gap-3">
+        <div className="p-2 bg-indigo-500/20 rounded-lg">
+            <ShieldAlert className="text-indigo-400" size={20} />
+        </div>
+        <div>
+            <h4 className="text-sm font-bold text-slate-200">
+                {lang === 'cn' ? '资产安全建议' : 'Security Recommendation'}
+            </h4>
+            <p className="text-xs text-slate-400 mt-0.5">
+                {lang === 'cn' 
+                    ? '大额资产建议使用硬件冷钱包存储，物理隔绝黑客。' 
+                    : 'Store large assets in a hardware wallet to isolate hackers.'}
+            </p>
+        </div>
+    </div>
+    <a 
+        href="https://shop.ledger.com/" // ⚠️ 明天把你申请到的返佣链接填这就行
+        target="_blank" 
+        rel="noopener noreferrer"
+        className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg transition text-center shadow-lg shadow-indigo-500/20 whitespace-nowrap"
+    >
+        {lang === 'cn' ? '购买 Ledger 钱包' : 'Get Ledger Wallet'}
+    </a>
+</div>
                 {/* ✅ 这里加入了新功能：交易对手卡片 */}
                 {report.activity.topCounterparties && <CounterpartyCard data={report.activity.topCounterparties} lang={lang} />}
                 
