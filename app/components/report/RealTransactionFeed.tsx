@@ -1,9 +1,11 @@
+import { useState, useEffect } from "react";
 import { 
   Activity, ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Zap, ExternalLink, Lock 
 } from "lucide-react";
 import { DICT } from "../../utils/dictionary";
 import { formatTimeAgo, formatEth } from "../../utils/format";
 
+// 配置频道链接
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
 
 export interface RecentTx { 
@@ -19,8 +21,27 @@ export interface RecentTx {
 
 export function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], address: string, lang: 'cn' | 'en' }) {
   const D = DICT[lang];
+  // 状态：是否已解锁 PRO
+  const [isUnlocked, setIsUnlocked] = useState(false);
+
+  // 初始化检查
+  useEffect(() => {
+      const unlocked = localStorage.getItem("wa_pro_unlocked");
+      if (unlocked === "true") setIsUnlocked(true);
+  }, []);
+
+  // 伪解锁逻辑：点击跳转 -> 设置本地缓存 -> 解锁视图
+  const handleUnlock = () => {
+      localStorage.setItem("wa_pro_unlocked", "true");
+      setIsUnlocked(true);
+      // 在新标签页打开 TG
+      window.open(TG_CHANNEL_URL, "_blank");
+  };
+  
+  // 限制显示条数
   const FREE_LIMIT = 8;
-  const visibleTxs = (txs || []).slice(0, FREE_LIMIT);
+  // 如果解锁了，显示全部；没解锁，显示前 8 条
+  const visibleTxs = (txs || []).slice(0, isUnlocked ? undefined : FREE_LIMIT);
   const hasMore = (txs || []).length > FREE_LIMIT;
 
   if (!txs || txs.length === 0) return (
@@ -35,13 +56,17 @@ export function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], a
        <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
           <h3 className="font-bold text-slate-200 text-sm flex items-center gap-2">
             <Activity size={14} className="text-blue-500" /> {D.recentActivity}
+             {/* 如果解锁了，显示个 PRO 标 */}
+             {isUnlocked && <span className="text-[10px] bg-blue-900/30 text-blue-400 px-1.5 rounded border border-blue-800">PRO</span>}
           </h3>
        </div>
+       
        <div className="flex-1 overflow-y-auto custom-scrollbar p-0 pb-16">
           {visibleTxs.map((tx, idx) => {
              const isIn = tx.to?.toLowerCase() === address.toLowerCase();
              const isError = tx.isError === "1";
              const method = tx.functionName ? tx.functionName.split('(')[0] : (isIn ? 'Receive' : 'Send');
+             
              const ethVal = Number(tx.value) / 1e18;
              const isZero = ethVal < 0.000001;
 
@@ -55,6 +80,7 @@ export function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], a
                 }`}>
                     {isError ? <AlertCircle size={14} /> : (method === 'execute' || method === 'executeBatch') ? <Zap size={14}/> : isIn ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}
                 </div>
+                
                 <div className="flex-1 min-w-0">
                    <div className="flex items-center justify-between mb-0.5">
                       <span className="text-[11px] font-bold text-slate-300 font-mono truncate max-w-[120px]" title={method}>{method}</span>
@@ -66,11 +92,13 @@ export function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], a
                      {isIn ? `From: ${tx.from.slice(0,6)}...` : `To: ${tx.to?.slice(0,6)}...`}
                    </div>
                 </div>
+
                 <div className="text-right min-w-[70px]">
                    <div className={`text-xs font-mono ${isZero ? 'text-slate-600' : 'text-slate-200 font-medium'}`}>
                      {isZero ? 'Interaction' : `${formatEth(tx.value)} ETH`}
                    </div>
                 </div>
+                
                 <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" className="text-slate-600 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition">
                   <ExternalLink size={12} />
                 </a>
@@ -79,16 +107,21 @@ export function RealTransactionFeed({ txs, address, lang }: { txs: RecentTx[], a
           })}
        </div>
 
-       {hasMore && (
+       {/* Paywall Overlay (只有没解锁且有更多数据时才显示) */}
+       {!isUnlocked && hasMore && (
            <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/95 to-transparent flex flex-col items-center justify-end pb-6 z-10">
-               <div className="text-center space-y-2 px-4">
+               <div className="text-center space-y-3 px-4">
                    <p className="text-xs text-slate-400 font-medium">
                        {lang === 'cn' ? `还有 ${txs.length - FREE_LIMIT} 条历史交易记录...` : `+${txs.length - FREE_LIMIT} more transactions...`}
                    </p>
-                   <a href={TG_CHANNEL_URL} target="_blank" className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-6 py-2.5 rounded-full shadow-lg shadow-blue-900/40 transition transform hover:scale-105">
+                   {/* ✅ 绑定了 handleUnlock 事件 */}
+                   <button 
+                       onClick={handleUnlock}
+                       className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-6 py-2.5 rounded-full shadow-lg shadow-blue-900/40 transition transform hover:scale-105"
+                   >
                        <Lock size={12} />
-                       {lang === 'cn' ? '加入社区解锁 (免费)' : 'Join to Unlock'}
-                   </a>
+                       {D.unlockBtn}
+                   </button>
                </div>
            </div>
        )}

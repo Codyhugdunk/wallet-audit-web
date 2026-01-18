@@ -2,36 +2,52 @@
 
 import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
-// 引入图标
+// 引入所有需要的图标
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
   ArrowUpRight, Twitter, Send, Clock, Share2,
   Zap, Calendar, Flame, Layers, ShieldAlert, Lock
 } from "lucide-react";
 
-// 引入工具
+// 引入组件和工具
 import { DICT, getTrans, PERSONA_MAP } from "./utils/dictionary";
 import { formatMoney, calculateWalletAge } from "./utils/format";
 
-// 引入组件
 import { WalletAuditLogo } from "./components/ui/WalletAuditLogo";
 import { TrendingWallets } from "./components/report/TrendingWallets";
 import { ApprovalsCard } from "./components/report/ApprovalsCard";
 import { RealTransactionFeed } from "./components/report/RealTransactionFeed";
 import { AssetTable } from "./components/report/AssetTable";
 import { ShareCardView } from "./components/report/ShareCardView";
-// ✅ 修复：补上了这一行引用！
 import { CounterpartyCard } from "./components/report/CounterpartyCard"; 
 
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
 const TWITTER_URL = "https://x.com/PhilWong19";
 
-// Report 类型定义
+// ✅ 修正后的热门地址 (已移除特朗普，防止$0尴尬)
+const HOT_WALLETS = [
+  { name: "Vitalik", address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", tag: "TAG_VITALIK", category: "Whales" },
+  { name: "Justin Sun", address: "0x3DdfA8eC3052539b6C9549F12cEA2C295cfF5296", tag: "TAG_SUN", category: "Whales" },
+  { name: "Satoshi (ETH)", address: "0x0000000000000000000000000000000000000000", tag: "TAG_SATOSHI", category: "Whales" },
+  { name: "Wintermute", address: "0xdbf5e9c5206d0db70a90108bf936da60221dc080", tag: "TAG_MM", category: "Institutions" },
+  { name: "Jump Trading", address: "0xf584f8728b874a6a5c7a8d4d387c9aae9172d621", tag: "TAG_INST", category: "Institutions" },
+  { name: "Paradigm", address: "0x6E0d01A76C3Cf4288372a29124A26D4353EE51BE", tag: "TAG_VC", category: "Institutions" },
+  { name: "Binance Hot", address: "0x28C6c06298d514Db089934071355E5743bf21d60", tag: "TAG_BINANCE", category: "Institutions" },
+  { name: "Ronin Hacker", address: "0x098B716B8Aaf21512996dC57EB0615e2383E2f96", tag: "TAG_HACKER", category: "Risk" },
+  { name: "FTX Drainer", address: "0x59ABf3837Fa963d69c5468e492D581013164939F", tag: "TAG_FTX", category: "Risk" },
+  { name: "Poloniex Hack", address: "0x3A8F5374544dD790938f3227d69C894F06723698", tag: "TAG_STOLEN", category: "Risk" },
+  { name: "Curve Exploiter", address: "0xB90DE7426798C7D47a36323E2503911Df5487814", tag: "TAG_ATTACKER", category: "Risk" },
+  { name: "SHIB Whale", address: "0x1406899696aDb2fA7a95eA68e80D4f9C82FCDeDd", tag: "TAG_SHIB", category: "Degen" },
+  { name: "Pepe Dev", address: "0x2af0b215e078f8d85241daf8d6e732f602569263", tag: "TAG_PEPE", category: "Degen" },
+  { name: "Machi BigBrother", address: "0x020cA66C30beC2c4Fe3861a94E4DB4A498A35872", tag: "TAG_MACHI", category: "Degen" },
+  { name: "Franklin", address: "0x4D9720023023E3E0d338a95697B7D50f3B646D08", tag: "TAG_BAYC", category: "Degen" },
+];
+
 type Report = any;
 type FavoriteItem = { address: string; nickname: string; addedAt: number; tags?: string[] };
 
 export default function HomePage() {
-  const [lang, setLang] = useState<'cn' | 'en'>('cn');
+  const [lang, setLang] = useState<'cn' | 'en'>('cn'); // ✅ 默认中文
   const [address, setAddress] = useState("");
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
@@ -126,32 +142,15 @@ export default function HomePage() {
       }
   };
 
+  // ⚠️ 暂时下线生成卡片功能，因为体验不好
   const handleShare = async () => {
-      if (!shareRef.current) return;
-      setGeneratingImg(true);
-      try {
-          const canvas = await html2canvas(shareRef.current as HTMLElement, {
-              backgroundColor: "#000000",
-              scale: 2, 
-              useCORS: true, 
-              logging: false, 
-              allowTaint: true,
-          });
-          const image = canvas.toDataURL("image/png");
-          const link = document.createElement("a");
-          link.href = image;
-          link.download = `WalletAudit-${report?.address.slice(0,6)}.png`;
-          link.click();
-      } catch (e: any) { 
-          console.error("Share gen failed", e);
-          alert(`生成失败: ${e.message || "未知错误"}`); 
-      } finally {
-          setGeneratingImg(false);
-      }
+      alert(lang === 'cn' ? "功能升级中，请直接使用系统截图。" : "Feature upgrading, please use system screenshot.");
   };
 
   return (
     <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20 flex flex-col">
+      
+      {/* 隐藏的分享卡片 (虽然按钮藏了，代码留着备用) */}
       {report && <ShareCardView report={report} lang={lang} targetRef={shareRef} />}
 
       <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
@@ -175,8 +174,9 @@ export default function HomePage() {
         
         <section className="max-w-4xl mx-auto space-y-4">
             <div className="text-center mb-8">
-                <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">{lang === 'cn' ? '洞察巨鲸，追踪聪明钱' : 'Track Whales & Smart Money'}</h1>
-                <p className="text-slate-500 text-sm">{lang === 'cn' ? '一站式链上战绩分析、交易流追踪与风险审计终端' : 'All-in-one terminal for On-chain PnL analysis, Transaction feeds and Risk audit.'}</p>
+                {/* ✅ 修改 Slogan */}
+                <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">{lang === 'cn' ? 'Web3 钱包安全审计与资产透视终端' : 'Web3 Wallet Security & Asset Terminal'}</h1>
+                <p className="text-slate-500 text-sm">{lang === 'cn' ? '一键检测高危授权、貔貅资产，实时追踪巨鲸与聪明钱动向。' : 'One-click audit for approvals, honeypots, and real-time whale tracking.'}</p>
             </div>
             
             <form onSubmit={handleSubmit} className="relative z-10 group px-2">
@@ -223,18 +223,18 @@ export default function HomePage() {
                               )
                           })()}
                       </div>
+                      
                       <div className="md:hidden text-right">
                           <div className="text-xs text-slate-500 uppercase">{D.netWorth}</div>
                           <div className="text-xl font-bold text-white font-mono">{formatMoney(report.assets.totalValue, lang)}</div>
                       </div>
                   </div>
+
                   <div className="flex-1 space-y-4 min-w-0">
                       <div>
                           <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
                              <h1 className="text-lg md:text-2xl font-bold text-white font-mono truncate w-full tracking-tight leading-tight">{report.address}</h1>
-                             <button onClick={handleShare} disabled={generatingImg} className="self-start md:self-auto flex items-center gap-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition shrink-0">
-                                 {generatingImg ? <Clock size={12} className="animate-spin"/> : <Share2 size={14} />}{generatingImg ? D.downloading : D.shareBtn}
-                             </button>
+                             {/* ⚠️ 隐藏了生成卡片按钮 */}
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                               <span className="text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-800 flex items-center gap-1 text-slate-300">
@@ -251,11 +251,11 @@ export default function HomePage() {
                               </div>
                           </div>
                       </div>
+
                       <div className="p-3 bg-slate-900/40 rounded-lg border border-slate-800/50 text-xs md:text-sm text-slate-300 leading-relaxed font-sans">
                          <span className="text-blue-400 font-bold mr-2">⚡️ Insight:</span>{getSummaryText()}
                       </div>
-                      
-                      {/* ✅ 这里加入了新功能：钱包年龄 */}
+
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
                             <Calendar size={14} className="text-blue-500 shrink-0" />
@@ -287,36 +287,31 @@ export default function HomePage() {
 
             <div className="lg:col-span-7 space-y-5">
                 {report.approvals && <ApprovalsCard approvals={report.approvals} lang={lang} />}
-                {/* 💰 变现模块：安保建议 (Affiliate Link) */}
-<div className="bg-gradient-to-r from-slate-900 to-slate-900/50 border border-indigo-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-    <div className="flex items-center gap-3">
-        <div className="p-2 bg-indigo-500/20 rounded-lg">
-            <ShieldAlert className="text-indigo-400" size={20} />
-        </div>
-        <div>
-            <h4 className="text-sm font-bold text-slate-200">
-                {lang === 'cn' ? '资产安全建议' : 'Security Recommendation'}
-            </h4>
-            <p className="text-xs text-slate-400 mt-0.5">
-                {lang === 'cn' 
-                    ? '大额资产建议使用硬件冷钱包存储，物理隔绝黑客。' 
-                    : 'Store large assets in a hardware wallet to isolate hackers.'}
-            </p>
-        </div>
-    </div>
-    <a 
-        href="https://shop.ledger.com/" // ⚠️ 明天把你申请到的返佣链接填这就行
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg transition text-center shadow-lg shadow-indigo-500/20 whitespace-nowrap"
-    >
-        {lang === 'cn' ? '购买 Ledger 钱包' : 'Get Ledger Wallet'}
-    </a>
-</div>
-                {/* ✅ 这里加入了新功能：交易对手卡片 */}
+                
                 {report.activity.topCounterparties && <CounterpartyCard data={report.activity.topCounterparties} lang={lang} />}
                 
-                <AssetTable assets={report.assets} lang={lang} />
+                {/* ✅ 插入 OneKey 广告位 */}
+                <div className="mb-5 bg-gradient-to-r from-slate-900 to-slate-900/50 border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-emerald-500/20 rounded-lg"><ShieldAlert className="text-emerald-400" size={20} /></div>
+                        <div>
+                            <h4 className="text-sm font-bold text-slate-200">{D.securityTitle}</h4>
+                            <div className="text-xs text-slate-400 mt-1 space-y-0.5">
+                                <p>{D.securityDesc}</p>
+                                <p className="text-emerald-400 font-mono font-bold">{D.code}: JANMCM</p>
+                            </div>
+                        </div>
+                    </div>
+                    <a href="https://onekey.so/r/JANMCM" target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition text-center shadow-lg shadow-emerald-500/20 whitespace-nowrap flex flex-col items-center justify-center">
+                        <span>{D.onekeyBtn}</span>
+                    </a>
+                </div>
+
+                <div className="relative">
+                    <AssetTable assets={report.assets} lang={lang} />
+                    {/* ✅ 资产免责声明 */}
+                    <div className="mt-2 text-[10px] text-slate-600 text-right font-mono italic">{D.assetDisclaimer}</div>
+                </div>
             </div>
 
             <div className="lg:col-span-5 flex flex-col gap-5">

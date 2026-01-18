@@ -1,6 +1,5 @@
 // app/utils/dictionary.ts
 
-// 1. 基础人格映射
 export const PERSONA_MAP: Record<string, string> = {
   "Golden Dog Hunter": "金狗猎人",
   "Whale": "巨鲸",
@@ -12,7 +11,6 @@ export const PERSONA_MAP: Record<string, string> = {
   "Exchange": "交易所",
 };
 
-// 2. 高级标签翻译表
 const TAG_TRANSLATIONS: Record<string, { cn: string, en: string }> = {
   "TAG_VITALIK": { cn: "💎 V神", en: "💎 Vitalik" },
   "TAG_SUN": { cn: "🐋 孙宇晨", en: "🐋 Justin Sun" },
@@ -52,59 +50,40 @@ const TAG_TRANSLATIONS: Record<string, { cn: string, en: string }> = {
   "Money_Laundering": { cn: "洗钱风险", en: "Money Laundering" }
 };
 
-// 3. 辅助翻译函数
 export function getTrans(key: string, lang: 'cn' | 'en'): string {
     if (TAG_TRANSLATIONS[key]) return TAG_TRANSLATIONS[key][lang];
     if (lang === 'cn' && PERSONA_MAP[key]) return PERSONA_MAP[key];
     return key;
 }
 
-// 4. UI 字典 (包含所有界面文案)
 export const DICT = {
   cn: {
+    // ✅ 修改 Slogan
     title: "WalletAudit",
     placeholder: "输入 ETH 地址或 ENS...",
     analyze: "立即审计",
-    analyzing: "正在分析链上数据...",
-    walletAge: "钱包年龄",
-    cpTitle: "常用交互对象",
-    cpCount: "次交互",
-    
-    // 资产模块
     assetsTitle: "资产分布详情",
     assetHeader: "资产",
     priceHeader: "价格/余额",
     valueHeader: "价值",
     allocHeader: "占比",
+    // ✅ 增加免责声明
+    assetDisclaimer: "*注：仅展示钱包余额，不含 DeFi 质押与流动性资产。",
     
-    // 按钮与通用
     proBtn: "PRO 高级版",
     quickAccess: "我的关注列表",
     noFavs: "暂无收藏，点击星星 ⭐ 添加关注",
-    
-    // 报告核心
     riskScore: "综合画像评分",
     netWorth: "总资产估值",
     contract: "合约",
     wallet: "钱包",
-    briefing: "智能摘要",
-    firstActive: "首次活跃",
-    unknownDate: "未知时间",
-    
-    // 交易流模块
     recentActivity: "最新交易动态 (实时)",
     noTxs: "近期无交易记录",
-    txTime: "时间",
-    txValue: "价值",
-    txMethod: "调用方法",
-    
-    // 核心指标
     metricTx: "总交易数",
     metricDays: "活跃天数",
     metricGas: "Gas 消耗",
     metricInteract: "交互对象",
-    
-    // 授权模块
+    briefing: "智能摘要",
     approvalsTitle: "风险授权检测",
     riskCount: "个高危授权",
     safe: "安全",
@@ -113,60 +92,57 @@ export const DICT = {
     amount: "额度",
     unknownContract: "未知合约",
     
-    // 分享与弹窗 (✅ 这一部分是你报错缺失的)
-    shareBtn: "生成报告卡片",
-    downloading: "生成中...",
     shareTitle: "WalletAudit 链上审计报告",
     scanToUse: "扫码体检你的钱包",
-    setNickname: "设置备注名", // ✅ 补全
-    cancel: "取消",          // ✅ 补全
-    confirm: "保存",         // ✅ 补全
-    
-    // 热门追踪
-    hotWallets: "热门追踪",
+    hotWallets: "热门追踪 🔥",
     catWhales: "名人大户",
     catInstitutions: "机构/交易所",
     catRisk: "黑客/高危",
-    catDegen: "Meme/NFT"
+    catDegen: "Meme/NFT",
+    firstActive: "首次活跃",
+    walletAge: "钱包年龄",
+    unknownDate: "未知时间",
+    setNickname: "设置备注名",
+    cancel: "取消",
+    confirm: "保存",
+    cpTitle: "常用交互对象",
+    cpCount: "次交互",
+    
+    // ✅ 解锁相关
+    unlockTitle: "还有更多历史交易记录...",
+    unlockBtn: "加入社区解锁 Pro (免费)",
+    
+    // ✅ OneKey 相关
+    securityTitle: "彻底防止被盗？",
+    securityDesc: "推荐使用 OneKey 硬件钱包，中文界面，物理隔绝黑客。",
+    onekeyBtn: "购买 OneKey",
+    code: "优惠码"
   },
   en: {
     title: "WalletAudit",
     placeholder: "Enter ETH Address / ENS...",
     analyze: "Audit",
-    analyzing: "Analyzing...",
-    walletAge: "Wallet Age",
-    cpTitle: "Top Counterparties",
-    cpCount: "txs",
-    
     assetsTitle: "Asset Allocation",
     assetHeader: "Asset",
     priceHeader: "Price/Bal",
     valueHeader: "Value",
     allocHeader: "Alloc",
+    assetDisclaimer: "*Note: Wallet balance only. DeFi/Staking excluded.",
     
     proBtn: "PRO Upgrade",
     quickAccess: "Watchlist",
     noFavs: "No watchlist yet. Click ⭐ to add.",
-    
     riskScore: "Wallet Score",
     netWorth: "Net Worth",
     contract: "Contract",
     wallet: "Wallet",
-    briefing: "Smart Briefing",
-    firstActive: "First Active",
-    unknownDate: "Unknown",
-    
     recentActivity: "Live Transactions",
     noTxs: "No recent transactions",
-    txTime: "Time",
-    txValue: "Value",
-    txMethod: "Method",
-    
     metricTx: "Total Txs",
     metricDays: "Active Days",
     metricGas: "Gas Spent",
     metricInteract: "Interactions",
-    
+    briefing: "Smart Briefing",
     approvalsTitle: "Risk Approvals",
     riskCount: "Risk Items",
     safe: "Safe",
@@ -175,19 +151,28 @@ export const DICT = {
     amount: "Amount",
     unknownContract: "Unknown",
     
-    // Share & Modal (✅ Fixed missing keys)
-    shareBtn: "Share Card",
-    downloading: "Generating...",
     shareTitle: "WalletAudit On-chain Report",
     scanToUse: "Audit Your Wallet",
-    setNickname: "Set Nickname", // ✅ 补全
-    cancel: "Cancel",            // ✅ 补全
-    confirm: "Save",             // ✅ 补全
-    
-    hotWallets: "Trending Now",
+    hotWallets: "Trending Now 🔥",
     catWhales: "Whales",
     catInstitutions: "Institutions",
     catRisk: "Hackers",
-    catDegen: "Degen"
+    catDegen: "Degen",
+    firstActive: "First Active",
+    walletAge: "Wallet Age",
+    unknownDate: "Unknown",
+    setNickname: "Set Nickname",
+    cancel: "Cancel",
+    confirm: "Save",
+    cpTitle: "Top Counterparties",
+    cpCount: "txs",
+    
+    unlockTitle: "+ more transactions hidden...",
+    unlockBtn: "Join to Unlock Full History",
+    
+    securityTitle: "Maximum Security?",
+    securityDesc: "Use OneKey Hardware Wallet. Isolate hackers physically.",
+    onekeyBtn: "Get OneKey",
+    code: "Code"
   }
 };
