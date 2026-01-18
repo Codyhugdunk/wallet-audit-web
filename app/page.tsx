@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
-// 引入图标
+// 引入所有需要的图标 (增加了 Wifi 图标用于 VPN)
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
   ArrowUpRight, Twitter, Send, Clock, Share2,
@@ -22,11 +22,10 @@ import { AssetTable } from "./components/report/AssetTable";
 import { ShareCardView } from "./components/report/ShareCardView";
 import { CounterpartyCard } from "./components/report/CounterpartyCard"; 
 
-
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
 const TWITTER_URL = "https://x.com/PhilWong19";
 
-// ✅ 经过清洗的“精品”地址库 (移除 $0 坏账，只留精品)
+// ✅ 1. 热门地址库 (已清洗：移除 Trump/Machi/Pepe 等坏账地址)
 const HOT_WALLETS = [
   { name: "Vitalik", address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", tag: "TAG_VITALIK", category: "Whales" },
   { name: "Justin Sun", address: "0x3DdfA8eC3052539b6C9549F12cEA2C295cfF5296", tag: "TAG_SUN", category: "Whales" },
@@ -130,7 +129,7 @@ export default function HomePage() {
       let text = "";
       if (lang === 'cn') {
           if (risk.score === 0) return `🚨 **红色警报**：此地址已被标记为「${persona}」。资金来源极度可疑，建议立即拉黑！`;
-          if (totalVal.includes("亿") || totalVal.includes("B")) return `🐋 **深海巨鳄**：坐拥 ${totalVal} 资产的顶级玩家。${persona === '信仰持仓者' ? '他是坚定的信仰者。' : '资产配置多元。'}`;
+          if (totalVal.includes("亿") || totalVal.includes("B")) return `🐋 **深海巨鳄**：坐拥 ${totalVal} 资产的顶级玩家。${persona === 'Maxi' ? '他是坚定的信仰者。' : '资产配置多元。'}`;
           if (ethVal > assets.totalValue * 0.9) return `💎 **钻石手**：资产规模 ${totalVal}，且 90% 以上梭哈了 ETH。`;
           return `📊 **审计报告**：当前管理 ${totalVal}，核心配置为 ${topAsset}。系统评级为「${persona}」。`;
       } else {
@@ -140,33 +139,10 @@ export default function HomePage() {
       }
   };
 
-  const handleShare = async () => {
-      if (!shareRef.current) return;
-      setGeneratingImg(true);
-      try {
-          const canvas = await html2canvas(shareRef.current as HTMLElement, {
-              backgroundColor: "#000000",
-              scale: 2, 
-              useCORS: true, 
-              logging: false, 
-              allowTaint: true,
-          });
-          const image = canvas.toDataURL("image/png");
-          const link = document.createElement("a");
-          link.href = image;
-          link.download = `WalletAudit-${report?.address.slice(0,6)}.png`;
-          link.click();
-      } catch (e: any) { 
-          console.error("Share gen failed", e);
-          alert(`生成失败: ${e.message || "未知错误"}`); 
-      } finally {
-          setGeneratingImg(false);
-      }
-  };
-
   return (
     <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20 flex flex-col">
       
+      {/* 隐藏的 ShareCardView 还是留着吧，万一以后修好了能用，不占地方 */}
       {report && <ShareCardView report={report} lang={lang} targetRef={shareRef} />}
 
       <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
@@ -238,6 +214,7 @@ export default function HomePage() {
                               )
                           })()}
                       </div>
+                      
                       <div className="md:hidden text-right">
                           <div className="text-xs text-slate-500 uppercase">{D.netWorth}</div>
                           <div className="text-xl font-bold text-white font-mono">{formatMoney(report.assets.totalValue, lang)}</div>
@@ -248,9 +225,8 @@ export default function HomePage() {
                       <div>
                           <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
                              <h1 className="text-lg md:text-2xl font-bold text-white font-mono truncate w-full tracking-tight leading-tight">{report.address}</h1>
-                             <button onClick={handleShare} disabled={generatingImg} className="self-start md:self-auto flex items-center gap-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition shrink-0">
-                                 {generatingImg ? <Clock size={12} className="animate-spin"/> : <Share2 size={14} />}{generatingImg ? D.downloading : D.shareBtn}
-                             </button>
+                             
+                             {/* ✅ 3. 已移除生成报告卡片按钮 */}
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                               <span className="text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-800 flex items-center gap-1 text-slate-300">
@@ -267,11 +243,11 @@ export default function HomePage() {
                               </div>
                           </div>
                       </div>
+
                       <div className="p-3 bg-slate-900/40 rounded-lg border border-slate-800/50 text-xs md:text-sm text-slate-300 leading-relaxed font-sans">
                          <span className="text-blue-400 font-bold mr-2">⚡️ Insight:</span>{getSummaryText()}
                       </div>
-                      
-                      {/* 核心指标 */}
+
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
                          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/30 rounded border border-slate-800/50">
                             <Calendar size={14} className="text-blue-500 shrink-0" />
@@ -293,6 +269,7 @@ export default function HomePage() {
                          </div>
                       </div>
                   </div>
+
                   <div className="hidden md:block text-right min-w-[120px]">
                       <div className="text-[11px] text-slate-500 uppercase tracking-widest mb-1">{D.netWorth}</div>
                       <div className="text-3xl font-bold text-white font-mono tracking-tight">{formatMoney(report.assets.totalValue, lang)}</div>
@@ -306,7 +283,7 @@ export default function HomePage() {
                 
                 {report.activity.topCounterparties && <CounterpartyCard data={report.activity.topCounterparties} lang={lang} />}
                 
-                {/* 💰 OneKey 广告位 (已替换 Ledger) */}
+                {/* 💰 变现模块：OneKey (收银台 1) */}
                 <div className="mb-5 bg-gradient-to-r from-slate-900 to-slate-900/50 border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                         <div className="p-2 bg-emerald-500/20 rounded-lg">
@@ -317,7 +294,7 @@ export default function HomePage() {
                                 {lang === 'cn' ? '彻底防止被盗？' : 'Maximum Security?'}
                             </h4>
                             <div className="text-xs text-slate-400 mt-1 space-y-0.5">
-                                <p>{lang === 'cn' ? '推荐使用 OneKey 硬件钱包，中文界面，物理隔绝黑客。' : 'Use OneKey Hardware Wallet. Isolate hackers physically.'}</p>
+                                <p>{lang === 'cn' ? '推荐使用 OneKey 硬件钱包，物理隔绝黑客。' : 'Use OneKey Hardware Wallet.'}</p>
                                 <p className="text-emerald-400 font-mono font-bold">
                                     {lang === 'cn' ? '🎁 邀请码: JANMCM' : '🎁 Code: JANMCM'}
                                 </p>
@@ -331,13 +308,37 @@ export default function HomePage() {
                         className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition text-center shadow-lg shadow-emerald-500/20 whitespace-nowrap flex flex-col items-center justify-center"
                     >
                         <span>{lang === 'cn' ? '购买 OneKey' : 'Get OneKey'}</span>
-                        <span className="text-[10px] opacity-80 font-normal scale-90">
-                            {lang === 'cn' ? '(点击直达)' : '(Click to Apply)'}
-                        </span>
                     </a>
                 </div>
 
-                {/* ✅ 增加了免责声明 */}
+                {/* 💰 变现模块：VPN (收银台 2) - 紧挨着 OneKey */}
+                <div className="mb-5 bg-gradient-to-r from-slate-900 to-slate-900/50 border border-blue-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-500/20 rounded-lg">
+                            <Wifi className="text-blue-400" size={20} />
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-bold text-slate-200">
+                                {lang === 'cn' ? '网络卡顿？链上交互慢？' : 'Network Lag?'}
+                            </h4>
+                            <div className="text-xs text-slate-400 mt-1 space-y-0.5">
+                                <p>{lang === 'cn' ? 'liltpupu 加速器，Web3 专用高速节点。' : 'Fast & Stable Web3 Accelerator.'}</p>
+                                <p className="text-blue-400 font-mono font-bold">
+                                    {lang === 'cn' ? '🎁 邀请码: X4D4CNij' : '🎁 Code: X4D4CNij'}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <a 
+                        href="https://training.lilt-pupu.cc/#/register?code=X4D4CNij" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition text-center shadow-lg shadow-blue-500/20 whitespace-nowrap flex flex-col items-center justify-center"
+                    >
+                         <span>{lang === 'cn' ? '获取加速器' : 'Get Access'}</span>
+                    </a>
+                </div>
+
                 <div className="relative">
                     <AssetTable assets={report.assets} lang={lang} />
                     <div className="mt-2 text-[10px] text-slate-600 text-right font-mono italic">{D.assetDisclaimer}</div>
@@ -346,30 +347,12 @@ export default function HomePage() {
 
             <div className="lg:col-span-5 flex flex-col gap-5">
                 <div className="flex-1"><RealTransactionFeed txs={report.activity.recentTxs} address={report.address} lang={lang} /></div>
-                
-                {/* 💰 VPN 广告位 (新增) */}
-                <a href="https://training.liltpupu.cc/#/register?code=X4D4CNij" target="_blank" className="block p-5 rounded-xl border border-blue-600/30 bg-gradient-to-br from-blue-900/20 to-black hover:border-blue-500/50 transition group">
+                <a href={TG_CHANNEL_URL} target="_blank" className="block p-5 rounded-xl border border-blue-600/30 bg-gradient-to-br from-blue-900/20 to-black hover:border-blue-500/50 transition group">
                     <div className="flex justify-between items-center mb-2">
-                        <h4 className="font-bold text-blue-400 text-sm">{lang === 'cn' ? '网络卡顿？链上交互慢？' : 'Network Lag?'}</h4>
-                        <Wifi size={16} className="text-blue-500 group-hover:translate-x-1 group-hover:-translate-y-1 transition" />
+                        <h4 className="font-bold text-blue-400 text-sm">Upgrade to PRO</h4>
+                        <ArrowUpRight size={16} className="text-blue-500 group-hover:translate-x-1 group-hover:-translate-y-1 transition" />
                     </div>
-                    <p className="text-xs text-slate-400 leading-relaxed">
-                        {lang === 'cn' ? '推荐使用 liltpupu 加速器，专为 Web3 优化，高速稳定不掉线。邀请码: X4D4CNij' : 'Get fast & stable access to Web3. Code: X4D4CNij'}
-                    </p>
-                    <div className="mt-3 flex items-center gap-1 text-[10px] text-blue-300 font-bold uppercase tracking-wider">
-                         {lang === 'cn' ? '点击获取加速' : 'Get Access'} <ArrowUpRight size={10} />
-                    </div>
-                </a>
-
-                {/* Pro 广告 */}
-                <a href={TG_CHANNEL_URL} target="_blank" className="block p-5 rounded-xl border border-slate-800 bg-slate-900/40 hover:border-slate-600 transition group mt-4">
-                    <div className="flex justify-between items-center mb-2">
-                        <h4 className="font-bold text-slate-300 text-sm">{D.proBtn}</h4>
-                        <ArrowUpRight size={16} className="text-slate-500 group-hover:translate-x-1 group-hover:-translate-y-1 transition" />
-                    </div>
-                    <p className="text-xs text-slate-500 leading-relaxed">
-                        {lang === 'cn' ? '解锁完整资金流向图谱、无限期交易历史与实时巨鲸异动推送。' : 'Unlock full fund flow graph, unlimited history and real-time whale alerts.'}
-                    </p>
+                    <p className="text-xs text-slate-400 leading-relaxed">{lang === 'cn' ? '解锁完整资金流向图谱、无限期交易历史与实时巨鲸异动推送。' : 'Unlock full fund flow graph, unlimited history and real-time whale alerts.'}</p>
                 </a>
             </div>
           </div>
