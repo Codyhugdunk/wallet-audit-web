@@ -38,7 +38,7 @@ export function formatEth(wei: string) {
     return val.toFixed(4);
 }
 
-// ✅ 4. 钱包年龄计算 (你报错就是因为缺了这个！)
+// ✅ 4. 钱包年龄计算 (你报错就是因为这里缺了这个函数！)
 export function calculateWalletAge(createdAt: number | null, lang: 'cn' | 'en') {
     if (!createdAt) return lang === 'cn' ? "未知" : "Unknown";
     const days = Math.floor((Date.now() - createdAt) / (1000 * 60 * 60 * 24));

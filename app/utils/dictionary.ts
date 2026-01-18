@@ -99,7 +99,7 @@ export const DICT = {
     cancel: "取消",
     confirm: "保存",
     
-    hotWallets: "热门追踪 🔥",
+    hotWallets: "热门追踪",
     catWhales: "名人大户",
     catInstitutions: "机构/交易所",
     catRisk: "黑客/高危",

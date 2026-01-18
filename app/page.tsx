@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import html2canvas from "html2canvas";
-// 引入所有需要的图标 (增加了 Wifi 图标用于 VPN)
+// 引入图标
 import { 
   Star, Trash2, Copy, ExternalLink, Activity, Wallet, Search, 
   ArrowUpRight, Twitter, Send, Clock, Share2,
@@ -25,19 +25,25 @@ import { CounterpartyCard } from "./components/report/CounterpartyCard";
 const TG_CHANNEL_URL = "https://t.me/walletaudit";
 const TWITTER_URL = "https://x.com/PhilWong19";
 
-// ✅ 1. 热门地址库 (已清洗：移除 Trump/Machi/Pepe 等坏账地址)
+// ✅ 1. 修正后的精品地址库 (已移除 Trump/Pepe 等坏账地址)
 const HOT_WALLETS = [
+  // 名人 (只留数据好的)
   { name: "Vitalik", address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", tag: "TAG_VITALIK", category: "Whales" },
   { name: "Justin Sun", address: "0x3DdfA8eC3052539b6C9549F12cEA2C295cfF5296", tag: "TAG_SUN", category: "Whales" },
   { name: "Satoshi (ETH)", address: "0x0000000000000000000000000000000000000000", tag: "TAG_SATOSHI", category: "Whales" },
+  
+  // 机构 (数据量大且稳定)
   { name: "Wintermute", address: "0xdbf5e9c5206d0db70a90108bf936da60221dc080", tag: "TAG_MM", category: "Institutions" },
   { name: "Jump Trading", address: "0xf584f8728b874a6a5c7a8d4d387c9aae9172d621", tag: "TAG_INST", category: "Institutions" },
   { name: "Paradigm", address: "0x6E0d01A76C3Cf4288372a29124A26D4353EE51BE", tag: "TAG_VC", category: "Institutions" },
   { name: "Binance Hot", address: "0x28C6c06298d514Db089934071355E5743bf21d60", tag: "TAG_BINANCE", category: "Institutions" },
+  
+  // 黑客 (红色警报素材)
   { name: "Ronin Hacker", address: "0x098B716B8Aaf21512996dC57EB0615e2383E2f96", tag: "TAG_HACKER", category: "Risk" },
   { name: "FTX Drainer", address: "0x59ABf3837Fa963d69c5468e492D581013164939F", tag: "TAG_FTX", category: "Risk" },
   { name: "Poloniex Hack", address: "0x3A8F5374544dD790938f3227d69C894F06723698", tag: "TAG_STOLEN", category: "Risk" },
   { name: "Curve Exploiter", address: "0xB90DE7426798C7D47a36323E2503911Df5487814", tag: "TAG_ATTACKER", category: "Risk" }
+  // 注意：Degen 类目暂时清空或者只放非常稳的，防止 $0 尴尬
 ];
 
 type Report = any;
@@ -115,34 +121,103 @@ export default function HomePage() {
       return { color: 'text-rose-500', border: 'border-rose-500/30', bg: 'bg-rose-500/10' };
   };
 
+// 🔥 升级版：多维深度 Insight 逻辑
   const getSummaryText = () => {
       if (!report) return "";
-      const { assets, identity, risk } = report;
+      const { assets, identity, risk, activity, approvals } = report;
       const totalVal = formatMoney(assets.totalValue, lang);
-      const ageDate = identity.createdAt ? new Date(identity.createdAt).getFullYear() : null;
-      const ethVal = assets.eth.value;
-      const topToken = assets.tokens.length > 0 ? assets.tokens[0] : null;
-      const topAsset = (topToken && topToken.value > ethVal) ? topToken.symbol : "ETH";
-      
+      const ethRatio = assets.totalValue > 0 ? (assets.eth.value / assets.totalValue) * 100 : 0;
       const persona = getTrans(risk.personaType, lang);
+      
+      // 1. 计算钱包年龄 (年)
+      const ageDays = identity.createdAt ? Math.floor((Date.now() - identity.createdAt) / (1000 * 3600 * 24)) : 0;
+      const ageYears = (ageDays / 365).toFixed(1);
 
-      let text = "";
+      // 2. 计算活跃度 (Tx数量 / 活跃天数)
+      // 注意：这里只是简单估算，用于判断是“死钱”还是“活钱”
+      const isActiveTrader = activity.txCount === "50+" || (typeof activity.txCount === 'number' && activity.txCount > 50);
+      
+      // 3. 判断风险授权
+      const riskApprovalCount = approvals?.riskCount || 0;
+
+      // 4. 获取交互最多的对象 (如果有)
+      const topInteracted = activity.topCounterparties?.[0]?.label || (lang === 'cn' ? "未知合约" : "Unknown Contract");
+
       if (lang === 'cn') {
-          if (risk.score === 0) return `🚨 **红色警报**：此地址已被标记为「${persona}」。资金来源极度可疑，建议立即拉黑！`;
-          if (totalVal.includes("亿") || totalVal.includes("B")) return `🐋 **深海巨鳄**：坐拥 ${totalVal} 资产的顶级玩家。${persona === 'Maxi' ? '他是坚定的信仰者。' : '资产配置多元。'}`;
-          if (ethVal > assets.totalValue * 0.9) return `💎 **钻石手**：资产规模 ${totalVal}，且 90% 以上梭哈了 ETH。`;
-          return `📊 **审计报告**：当前管理 ${totalVal}，核心配置为 ${topAsset}。系统评级为「${persona}」。`;
+          // --- 中文文案生成 ---
+          
+          // A. ☠️ 黑名单/归零逻辑
+          if (risk.score === 0) {
+              return `🚨 **红色最高警报**：此地址被系统标记为「${persona}」。资金来源极度可疑，且存在 ${riskApprovalCount} 个高危授权漏洞。建议立即拉黑，切勿交互！`;
+          }
+
+          // B. 🐋 巨鲸逻辑 (资产 > 100万)
+          if (totalVal.includes("M") || totalVal.includes("B") || totalVal.includes("亿") || totalVal.includes("万")) {
+              let text = `🐋 **链上画像**：这是一位拥有 ${totalVal} 资产的`;
+              
+              // 年龄定性
+              if (parseFloat(ageYears) > 3) text += `“骨灰级”老玩家（${ageYears}年），`;
+              else if (parseFloat(ageYears) < 0.5) text += `“新晋”巨鲸（${ageDays}天），`;
+              else text += `资深玩家，`;
+
+              // 风格定性
+              if (ethRatio > 80) text += `风格极度稳健，是 ETH 的坚定信仰者。`;
+              else if (isActiveTrader) text += `链上操作频繁，近期主要与 ${topInteracted} 进行交互。`;
+              else text += `属于「${persona}」风格。`;
+
+              // 风险定性
+              if (riskApprovalCount > 0) text += ` ⚠️ 注意：检测到 ${riskApprovalCount} 个无限授权风险，存在被盗隐患。`;
+              else text += ` ✅ 风控意识优秀，资产护城河坚固。`;
+
+              return text;
+          }
+
+          // C. 🐟 普通/Degen 逻辑
+          let text = `📊 **审计报告**：当前管理 ${totalVal}，属于「${persona}」。`;
+          if (isActiveTrader) text += ` 交易风格激进，是链上活跃分子。`;
+          else text += ` 近期处于静默或囤币状态。`;
+          
+          if (risk.score < 60) text += ` ⚠️ 警告：资产集中度过高或存在垃圾资产，请警惕归零风险。`;
+          else text += ` 账户结构健康。`;
+          
+          return text;
+
       } else {
-          if (risk.score === 0) return `🚨 **RED FLAG**: Identified as "${persona}". Do NOT interact!`;
-          if (ethVal > assets.totalValue * 0.9) return `💎 **Diamond Hand**: Holding ${totalVal} with >90% exposure to ETH.`;
-          return `📊 **Audit**: Managing ${totalVal}, focused on ${topAsset}. Rated as "${persona}".`;
+          // --- English Logic ---
+          
+          if (risk.score === 0) {
+              return `🚨 **RED FLAG**: Identified as "${persona}". Highly suspicious fund source with ${riskApprovalCount} high-risk approvals. Do NOT interact!`;
+          }
+
+          if (totalVal.includes("M") || totalVal.includes("B")) {
+              let text = `🐋 **Whale Profile**: Managing ${totalVal}. This is a `;
+              
+              if (parseFloat(ageYears) > 3) text += `veteran wallet (${ageYears} yrs). `;
+              else text += `active player. `;
+
+              if (ethRatio > 80) text += `A true ETH Maxi with a conservative strategy. `;
+              else if (isActiveTrader) text += `Highly active on-chain, freq. interacting with ${topInteracted}. `;
+              else text += `Identified as "${persona}". `;
+
+              if (riskApprovalCount > 0) text += `⚠️ Warning: ${riskApprovalCount} unlimited approvals detected.`;
+              else text += `✅ Security hygiene is excellent.`;
+
+              return text;
+          }
+
+          let text = `📊 **Audit**: Net worth ${totalVal}, rated as "${persona}". `;
+          if (isActiveTrader) text += `Shows high on-chain activity. `;
+          
+          if (risk.score < 60) text += `⚠️ Risk factors detected (Concentration/Junk assets).`;
+          else text += `Portfolio structure appears healthy.`;
+
+          return text;
       }
   };
 
   return (
     <main className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-blue-500/30 pb-20 flex flex-col">
       
-      {/* 隐藏的 ShareCardView 还是留着吧，万一以后修好了能用，不占地方 */}
       {report && <ShareCardView report={report} lang={lang} targetRef={shareRef} />}
 
       <nav className="border-b border-slate-900 bg-[#050505]/80 backdrop-blur sticky top-0 z-40">
@@ -166,16 +241,28 @@ export default function HomePage() {
         
         <section className="max-w-4xl mx-auto space-y-4">
             <div className="text-center mb-8">
-                <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">{lang === 'cn' ? '洞察巨鲸，追踪聪明钱' : 'Track Whales & Smart Money'}</h1>
-                <p className="text-slate-500 text-sm">{lang === 'cn' ? '一站式链上战绩分析、交易流追踪与风险审计终端' : 'All-in-one terminal for On-chain PnL analysis, Transaction feeds and Risk audit.'}</p>
+                {/* ✅ 2. 修正 Slogan */}
+                <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 tracking-tight">
+                    {lang === 'cn' ? 'Web3 钱包安全审计与资产透视终端' : 'Web3 Wallet Security & Asset Terminal'}
+                </h1>
+                <p className="text-slate-500 text-sm">
+                    {lang === 'cn' ? '一键检测高危授权、貔貅资产，实时追踪巨鲸与聪明钱动向。' : 'One-click audit for approvals, honeypots, and real-time whale tracking.'}
+                </p>
             </div>
             
             <form onSubmit={handleSubmit} className="relative z-10 group px-2">
                 <div className="absolute inset-0 bg-blue-600/20 rounded-xl blur-xl opacity-0 group-hover:opacity-100 transition duration-700"></div>
                 <div className="relative flex items-center bg-[#0a0a0a] border border-slate-800 rounded-xl p-1.5 shadow-2xl focus-within:border-blue-500/50 transition">
                     <Search className="ml-3 text-slate-500" size={18} />
-                    <input value={address} onChange={e => setAddress(e.target.value)} placeholder={D.placeholder} className="flex-1 bg-transparent border-none outline-none text-sm px-3 text-white placeholder:text-slate-600 font-mono h-10 w-full" />
-                    <button disabled={loading} className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 md:px-6 h-10 rounded-lg transition whitespace-nowrap">{loading ? 'Thinking...' : D.analyze}</button>
+                    <input 
+                      value={address}
+                      onChange={e => setAddress(e.target.value)}
+                      placeholder={D.placeholder}
+                      className="flex-1 bg-transparent border-none outline-none text-sm px-3 text-white placeholder:text-slate-600 font-mono h-10 w-full"
+                    />
+                    <button disabled={loading} className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 md:px-6 h-10 rounded-lg transition whitespace-nowrap">
+                        {loading ? 'Thinking...' : D.analyze}
+                    </button>
                 </div>
             </form>
 
@@ -183,12 +270,16 @@ export default function HomePage() {
 
             {favorites.length > 0 && (
                 <div className="px-2 pt-2 border-t border-slate-800/50 mt-2">
-                    <div className="flex items-center gap-2 text-xs text-slate-500 mb-2 font-medium"><Star size={12} /> {D.quickAccess}</div>
+                    <div className="flex items-center gap-2 text-xs text-slate-500 mb-2 font-medium">
+                        <Star size={12} /> {D.quickAccess}
+                    </div>
                     <div className="flex flex-wrap gap-2">
                         {favorites.map(fav => (
                             <div key={fav.address} onClick={() => loadFav(fav.address)} className="group flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-full px-3 py-1.5 hover:border-blue-500/50 hover:bg-slate-800 transition cursor-pointer select-none">
                                 <span className="text-[11px] text-slate-300 font-medium">{fav.nickname}</span>
-                                <button onClick={(e) => { e.stopPropagation(); removeFavorite(fav.address); }} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"><Trash2 size={11} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); removeFavorite(fav.address); }} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition">
+                                    <Trash2 size={11} />
+                                </button>
                             </div>
                         ))}
                     </div>
@@ -208,7 +299,10 @@ export default function HomePage() {
                               const s = getScoreStyle(report.risk.score);
                               return (
                                 <div className={`flex flex-col items-center justify-center w-24 h-24 md:w-28 md:h-28 rounded-xl border ${s.bg} ${s.border} ${s.color} shrink-0`}>
-                                    <div className="flex items-baseline"><span className="text-3xl md:text-4xl font-bold font-mono">{report.risk.score}</span><span className="text-sm opacity-60 font-mono ml-0.5">/100</span></div>
+                                    <div className="flex items-baseline">
+                                        <span className="text-3xl md:text-4xl font-bold font-mono">{report.risk.score}</span>
+                                        <span className="text-sm opacity-60 font-mono ml-0.5">/100</span>
+                                    </div>
                                     <span className="text-[10px] opacity-80 uppercase mt-1 font-bold text-center leading-tight px-1">{D.riskScore}</span>
                                 </div>
                               )
@@ -225,8 +319,6 @@ export default function HomePage() {
                       <div>
                           <div className="flex flex-col md:flex-row md:items-center justify-between mb-2 gap-2">
                              <h1 className="text-lg md:text-2xl font-bold text-white font-mono truncate w-full tracking-tight leading-tight">{report.address}</h1>
-                             
-                             {/* ✅ 3. 已移除生成报告卡片按钮 */}
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                               <span className="text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-800 flex items-center gap-1 text-slate-300">
@@ -283,7 +375,7 @@ export default function HomePage() {
                 
                 {report.activity.topCounterparties && <CounterpartyCard data={report.activity.topCounterparties} lang={lang} />}
                 
-                {/* 💰 变现模块：OneKey (收银台 1) */}
+                {/* 💰 OneKey 广告位 */}
                 <div className="mb-5 bg-gradient-to-r from-slate-900 to-slate-900/50 border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                         <div className="p-2 bg-emerald-500/20 rounded-lg">
@@ -294,7 +386,7 @@ export default function HomePage() {
                                 {lang === 'cn' ? '彻底防止被盗？' : 'Maximum Security?'}
                             </h4>
                             <div className="text-xs text-slate-400 mt-1 space-y-0.5">
-                                <p>{lang === 'cn' ? '推荐使用 OneKey 硬件钱包，物理隔绝黑客。' : 'Use OneKey Hardware Wallet.'}</p>
+                                <p>{lang === 'cn' ? '推荐使用 OneKey 硬件钱包，中文界面，物理隔绝黑客。' : 'Use OneKey Hardware Wallet. Isolate hackers physically.'}</p>
                                 <p className="text-emerald-400 font-mono font-bold">
                                     {lang === 'cn' ? '🎁 邀请码: JANMCM' : '🎁 Code: JANMCM'}
                                 </p>
@@ -311,7 +403,7 @@ export default function HomePage() {
                     </a>
                 </div>
 
-                {/* 💰 变现模块：VPN (收银台 2) - 紧挨着 OneKey */}
+                {/* ✅ 3. 新增 VPN 广告位 (双保险变现) */}
                 <div className="mb-5 bg-gradient-to-r from-slate-900 to-slate-900/50 border border-blue-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                         <div className="p-2 bg-blue-500/20 rounded-lg">
@@ -347,12 +439,16 @@ export default function HomePage() {
 
             <div className="lg:col-span-5 flex flex-col gap-5">
                 <div className="flex-1"><RealTransactionFeed txs={report.activity.recentTxs} address={report.address} lang={lang} /></div>
-                <a href={TG_CHANNEL_URL} target="_blank" className="block p-5 rounded-xl border border-blue-600/30 bg-gradient-to-br from-blue-900/20 to-black hover:border-blue-500/50 transition group">
+                
+                {/* 底部 Pro 广告 */}
+                <a href={TG_CHANNEL_URL} target="_blank" className="block p-5 rounded-xl border border-slate-800 bg-slate-900/40 hover:border-slate-600 transition group mt-4">
                     <div className="flex justify-between items-center mb-2">
-                        <h4 className="font-bold text-blue-400 text-sm">Upgrade to PRO</h4>
-                        <ArrowUpRight size={16} className="text-blue-500 group-hover:translate-x-1 group-hover:-translate-y-1 transition" />
+                        <h4 className="font-bold text-slate-300 text-sm">{D.proBtn}</h4>
+                        <ArrowUpRight size={16} className="text-slate-500 group-hover:translate-x-1 group-hover:-translate-y-1 transition" />
                     </div>
-                    <p className="text-xs text-slate-400 leading-relaxed">{lang === 'cn' ? '解锁完整资金流向图谱、无限期交易历史与实时巨鲸异动推送。' : 'Unlock full fund flow graph, unlimited history and real-time whale alerts.'}</p>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                        {lang === 'cn' ? '解锁完整资金流向图谱、无限期交易历史与实时巨鲸异动推送。' : 'Unlock full fund flow graph, unlimited history and real-time whale alerts.'}
+                    </p>
                 </a>
             </div>
           </div>
